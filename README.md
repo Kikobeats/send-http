@@ -25,25 +25,25 @@ const got = require('got')
 
 http.createServer().on('request', (req, res) => {
   /* send a string */
-  send(200, 'foo')
+  send(res, 200, 'foo')
 
   /* send an object */
-  send(200, { foo: 'bar' })
+  send(res, 200, { foo: 'bar' })
 
   /* send a number */
-  send(200, 1234)
+  send(res, 200, 1234)
 
   /* send a buffer */
-  send(200, Buffer.from('hello world'))
+  send(res, 200, Buffer.from('hello world'))
 
   /* send a stream  */
-  send(200, got.stream('https.//example.com')) //
+  send(res, 200, got.stream('https.//example.com'))
 
   /* send a stream */
-  send(200, got.stream('https.//example.com'))
+  send(res, 200, got.stream('https.//example.com'))
 
   /* sets status code too */
-  send(200, got.stream('https.//example.com'))
+  send(res, 200, got.stream('https.//example.com'))
 })
 ```
 
