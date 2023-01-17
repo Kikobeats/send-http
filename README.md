@@ -23,7 +23,7 @@ const send = require('send-http')
 const http = require('http')
 const got = require('got')
 
-http.createServer().on('request', (req, res) => {
+http.createServer((req, res) => {
   /* send a string */
   send(res, 200, 'foo')
 
