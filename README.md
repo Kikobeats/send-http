@@ -47,6 +47,17 @@ http.createServer((req, res) => {
 })
 ```
 
+Additionally, you can `.create` to customize the behvaior before sending the data:
+
+```js
+const send = require('send-http').create((res, data) => {
+  if (Buffer.byteLength(data) > 6291456) {
+    throw new Error('Payload size is over 6mb')
+  }
+  return res.end(data)
+})
+```
+
 ## License
 
 **send-http** © [Kiko Beats](https://kikobeats.com), released under the [MIT](https://github.com/Kikobeats/send-http/blob/master/LICENSE.md) License.<br>
