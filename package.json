@@ -27,9 +27,6 @@
     "stream",
     "string"
   ],
-  "dependencies": {
-    "on-finished": "~2.4.1"
-  },
   "devDependencies": {
     "@commitlint/cli": "latest",
     "@commitlint/config-conventional": "latest",
