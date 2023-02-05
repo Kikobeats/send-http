@@ -1,5 +1,9 @@
 # send-http
 
+![Last version](https://img.shields.io/github/tag/Kikobeats/send-http.svg?style=flat-square)
+[![Coverage Status](https://img.shields.io/coveralls/Kikobeats/send-http.svg?style=flat-square)](https://coveralls.io/github/Kikobeats/send-http)
+[![NPM Status](https://img.shields.io/npm/dm/send-http.svg?style=flat-square)](https://www.npmjs.org/package/send-http)
+
 > A straightforward way to send data for http.IncomingMessage.
 
 It's like `res.send`, but:
