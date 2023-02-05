@@ -1,7 +1,5 @@
 'use strict'
 
-const { isFinished } = require('on-finished')
-
 const isStream = data => !!data && typeof data.pipe === 'function'
 
 const setContentType = (res, type) =>
@@ -10,8 +8,6 @@ const setContentType = (res, type) =>
 const create =
   send =>
     (res, statusCode = 200, data = null) => {
-      if (isFinished(res)) return
-
       res.statusCode = statusCode
 
       if (data === null) return res.end()
