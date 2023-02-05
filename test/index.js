@@ -8,10 +8,6 @@ const got = require('got')
 
 const send = require('..')
 
-const createServer = handler => http.createServer().on('request', handler)
-
-const closeServer = server => promisify(server.close)
-
 const listenServer = async (server, ...args) => {
   server.listen(...args)
   await once(server, 'listening')
@@ -20,11 +16,19 @@ const listenServer = async (server, ...args) => {
 }
 
 const getServer = async (t, handler) => {
-  const server = createServer(handler)
+  const server = http.createServer(handler)
   const url = await listenServer(server)
-  t.teardown(() => closeServer(server))
+  t.teardown(promisify(server.close.bind(server)))
   return url
 }
+
+test('send(200, <null>)', async t => {
+  const url = await getServer(t, (req, res) => send(res, 200, null))
+  const { body, statusCode } = await got(url)
+
+  t.is(statusCode, 200)
+  t.is(body, '')
+})
 
 test('send(200, <String>)', async t => {
   const url = await getServer(t, (req, res) => send(res, 200, 'woot'))
