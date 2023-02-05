@@ -28,6 +28,9 @@ const http = require('http')
 const got = require('got')
 
 http.createServer((req, res) => {
+  /* send with no body */
+  send(res, 200)
+
   /* send a string */
   send(res, 200, 'foo')
 
@@ -41,12 +44,6 @@ http.createServer((req, res) => {
   send(res, 200, Buffer.from('hello world'))
 
   /* send a stream  */
-  send(res, 200, got.stream('https.//example.com'))
-
-  /* send a stream */
-  send(res, 200, got.stream('https.//example.com'))
-
-  /* sets status code too */
   send(res, 200, got.stream('https.//example.com'))
 })
 ```
