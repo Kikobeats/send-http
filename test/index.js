@@ -1,29 +1,24 @@
 'use strict'
 
+const { default: listen } = require('async-listen')
+const { createServer } = require('http')
 const { promisify } = require('util')
-const { once } = require('events')
-const http = require('http')
 const test = require('ava')
 const got = require('got')
 
 const send = require('..')
 
-const listenServer = async (server, ...args) => {
-  server.listen(...args)
-  await once(server, 'listening')
-  const { address, port } = server.address()
-  return `http://${address === '::' ? '[::]' : address}:${port}`
-}
+const closeServer = server => promisify(server.close)
 
-const getServer = async (t, handler) => {
-  const server = http.createServer(handler)
-  const url = await listenServer(server)
-  t.teardown(promisify(server.close.bind(server)))
+const runServer = async (t, handler) => {
+  const server = createServer(handler)
+  const url = await listen(server)
+  t.teardown(() => closeServer(server))
   return url
 }
 
 test('send(200, <null>)', async t => {
-  const url = await getServer(t, (req, res) => send(res, 200, null))
+  const url = await runServer(t, (req, res) => send(res, 200, null))
   const { body, statusCode } = await got(url)
 
   t.is(statusCode, 200)
@@ -31,7 +26,7 @@ test('send(200, <null>)', async t => {
 })
 
 test('send(200, <String>)', async t => {
-  const url = await getServer(t, (req, res) => send(res, 200, 'woot'))
+  const url = await runServer(t, (req, res) => send(res, 200, 'woot'))
   const { body, statusCode } = await got(url)
 
   t.is(statusCode, 200)
@@ -39,7 +34,7 @@ test('send(200, <String>)', async t => {
 })
 
 test('send(200, <Object>)', async t => {
-  const url = await getServer(t, (req, res) => send(res, 200, { a: 'b' }))
+  const url = await runServer(t, (req, res) => send(res, 200, { a: 'b' }))
   const { body, statusCode } = await got(url, { responseType: 'json' })
 
   t.is(statusCode, 200)
@@ -47,7 +42,7 @@ test('send(200, <Object>)', async t => {
 })
 
 test('send(200, <Number>)', async t => {
-  const url = await getServer(t, (req, res) => send(res, 200, 2))
+  const url = await runServer(t, (req, res) => send(res, 200, 2))
   const { body, statusCode } = await got(url, { responseType: 'json' })
 
   t.is(statusCode, 200)
@@ -55,7 +50,7 @@ test('send(200, <Number>)', async t => {
 })
 
 test('send(200, <Buffer>)', async t => {
-  const url = await getServer(t, (req, res) =>
+  const url = await runServer(t, (req, res) =>
     send(res, 200, Buffer.from('muscle'))
   )
   const { body, statusCode } = await got(url)
@@ -65,10 +60,10 @@ test('send(200, <Buffer>)', async t => {
 })
 
 test('send(200, <Stream>)', async t => {
-  const streamUrl = await getServer(t, (req, res) => {
+  const streamUrl = await runServer(t, (req, res) => {
     res.end('OK')
   })
-  const url = await getServer(t, (req, res) =>
+  const url = await runServer(t, (req, res) =>
     send(res, 200, got.stream(streamUrl))
   )
   const { body, statusCode } = await got(url)
