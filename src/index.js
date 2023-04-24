@@ -1,6 +1,6 @@
 'use strict'
 
-const isStream = data => !!data && typeof data.pipe === 'function'
+const isStream = input => input != null && typeof input.pipe === 'function'
 
 const setContentType = (res, type) =>
   !res.hasHeader('Content-Type') && res.setHeader('Content-Type', type)
@@ -40,3 +40,4 @@ const create =
 
 module.exports = create((res, data) => res.end(data))
 module.exports.create = create
+module.exports.isStream = isStream
