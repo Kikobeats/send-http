@@ -2,7 +2,7 @@
   "name": "send-http",
   "description": "A straightforward way to send data for http.IncomingMessage.",
   "homepage": "https://github.com/Kikobeats/send-http",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "main": "src/index.js",
   "author": {
     "email": "josefrancisco.verdu@gmail.com",
