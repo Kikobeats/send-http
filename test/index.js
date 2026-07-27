@@ -3,7 +3,7 @@
 const { default: listen } = require('async-listen')
 const { createServer } = require('http')
 const { promisify } = require('util')
-const test = require('ava')
+const test = require('ava').default
 const got = require('got')
 
 const send = require('..')

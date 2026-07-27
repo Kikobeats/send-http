@@ -2,7 +2,7 @@
 
 const Stream = require('node:stream')
 const path = require('path')
-const test = require('ava')
+const test = require('ava').default
 const net = require('net')
 const fs = require('fs')
 
