@@ -1,5 +1,7 @@
 'use strict'
 
+const { pipeline } = require('node:stream')
+
 const isStream = input => input != null && typeof input.pipe === 'function'
 
 const setContentType = (res, type) =>
@@ -20,7 +22,10 @@ const create =
 
       if (isStream(data)) {
         setContentType(res, 'application/octet-stream')
-        return data.pipe(res)
+        // pipeline destroys res with the error, so consumers observe it via
+        // onFinished(res) / res 'error'. The empty callback can't be dropped:
+        // pipeline reads its last argument as the callback.
+        return pipeline(data, res, () => {})
       }
 
       let str = data
