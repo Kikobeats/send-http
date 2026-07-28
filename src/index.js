@@ -7,6 +7,15 @@ const isStream = input => input != null && typeof input.pipe === 'function'
 const setContentType = (res, type) =>
   !res.hasHeader('Content-Type') && res.setHeader('Content-Type', type)
 
+const sendStream = (res, statusCode, stream, { onError } = {}) => {
+  res.statusCode = statusCode
+  setContentType(res, 'application/octet-stream')
+  // onError runs on the stream, not on the pipeline callback: by the time
+  // pipeline calls back it already destroyed res, so no reply can be written.
+  if (onError !== undefined) stream.once('error', error => onError(error, res))
+  return pipeline(stream, res, () => {})
+}
+
 const create =
   send =>
     (res, statusCode = 200, data = null) => {
@@ -20,13 +29,7 @@ const create =
         return res.end(data)
       }
 
-      if (isStream(data)) {
-        setContentType(res, 'application/octet-stream')
-        // pipeline destroys res with the error, so consumers observe it via
-        // onFinished(res) / res 'error'. The empty callback can't be dropped:
-        // pipeline reads its last argument as the callback.
-        return pipeline(data, res, () => {})
-      }
+      if (isStream(data)) return sendStream(res, statusCode, data)
 
       let str = data
       const type = typeof data
@@ -46,3 +49,4 @@ const create =
 module.exports = create((res, data) => res.end(data))
 module.exports.create = create
 module.exports.isStream = isStream
+module.exports.sendStream = sendStream

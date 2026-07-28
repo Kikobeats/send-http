@@ -49,6 +49,24 @@ http.createServer((req, res) => {
 })
 ```
 
+When a stream fails, the response is destroyed with the error: the failure reaches the client instead of the process. Use `sendStream` to decide what the client gets instead:
+
+```js
+const { sendStream } = require('send-http')
+
+http.createServer((req, res) => {
+  sendStream(res, 200, got.stream('https://example.com'), {
+    onError: (error, res) => {
+      if (res.headersSent) return res.destroy(error)
+      res.statusCode = 504
+      res.end()
+    }
+  })
+})
+```
+
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
+
 Additionally, you can `.create` to customize the behvaior before sending the data:
 
 ```js
