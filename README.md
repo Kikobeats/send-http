@@ -12,6 +12,7 @@ It's like `res.send`, but:
 - It checks http.IncomingMessage is writable before write.
 - It determines `Content-Type` based on the data type.
 - It optionally sets status code as third argument.
+- It tears down both ends when a stream fails or the client disconnects.
 - It's small (~50 LOC).
 
 ## Install

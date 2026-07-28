@@ -2,13 +2,17 @@
 
 const { default: listen } = require('async-listen')
 const { createServer } = require('http')
+const { Readable } = require('stream')
 const { promisify } = require('util')
 const test = require('ava').default
 const got = require('got')
 
 const send = require('..')
 
-const closeServer = server => promisify(server.close)
+const closeServer = server => {
+  server.closeAllConnections()
+  return promisify(server.close.bind(server))()
+}
 
 const runServer = async (t, handler) => {
   const server = createServer(handler)
@@ -70,4 +74,58 @@ test('send(200, <Stream>)', async t => {
 
   t.is(statusCode, 200)
   t.is(body, 'OK')
+})
+
+test('send(200, <Stream>) destroys the response when the stream fails', async t => {
+  const url = await runServer(t, (req, res) => {
+    const stream = new Readable({
+      read () {
+        this.destroy(new Error('stream failed'))
+      }
+    })
+    send(res, 200, stream)
+  })
+
+  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+})
+
+test('send(200, <Stream>) destroys the response when the stream fails midway', async t => {
+  const url = await runServer(t, (req, res) => {
+    let sent = false
+    const stream = new Readable({
+      read () {
+        if (sent) return this.destroy(new Error('stream failed'))
+        sent = true
+        this.push('partial')
+      }
+    })
+    send(res, 200, stream)
+  })
+
+  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+})
+
+test('send(200, <Stream>) destroys the stream when the client goes away', async t => {
+  t.timeout(5000)
+
+  let streamClosed
+  const closed = new Promise(resolve => {
+    streamClosed = resolve
+  })
+
+  const url = await runServer(t, (req, res) => {
+    const stream = new Readable({
+      read () {
+        setTimeout(() => this.push('chunk'), 10)
+      }
+    })
+    stream.once('close', () => streamClosed(stream.destroyed))
+    send(res, 200, stream)
+  })
+
+  const request = got.stream(url, { retry: 0 })
+  request.once('data', () => request.destroy())
+  request.once('error', () => {})
+
+  t.true(await closed)
 })
