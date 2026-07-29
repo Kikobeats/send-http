@@ -8,7 +8,7 @@ const test = require('ava').default
 const got = require('got')
 
 const send = require('..')
-const { sendStream } = require('..')
+const { sendStream } = send
 
 const senders = [
   ['send', send],
