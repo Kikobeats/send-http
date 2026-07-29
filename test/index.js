@@ -106,6 +106,26 @@ test('send(200, <Stream>) destroys the response when the stream fails midway', a
   await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
 })
 
+const PAST_DETECTION_SAMPLE = Buffer.alloc(8192, 7)
+
+const ongoingStream = () => {
+  let started = false
+  let timer
+  return new Readable({
+    read () {
+      timer = setTimeout(() => {
+        if (started) return this.push(Buffer.alloc(64, 7))
+        started = true
+        this.push(PAST_DETECTION_SAMPLE)
+      }, 10)
+    },
+    destroy (error, callback) {
+      clearTimeout(timer)
+      callback(error)
+    }
+  })
+}
+
 test('send(200, <Stream>) destroys the stream when the client goes away', async t => {
   t.timeout(5000)
 
@@ -115,11 +135,8 @@ test('send(200, <Stream>) destroys the stream when the client goes away', async 
   })
 
   const url = await runServer(t, (req, res) => {
-    const stream = new Readable({
-      read () {
-        setTimeout(() => this.push('chunk'), 10)
-      }
-    })
+    const stream = ongoingStream()
+    t.teardown(() => stream.destroy())
     stream.once('close', () => streamClosed(stream.destroyed))
     send(res, 200, stream)
   })
@@ -220,11 +237,8 @@ test('sendStream(200, <Stream>) destroys the stream when the client goes away', 
   })
 
   const url = await runServer(t, (req, res) => {
-    const stream = new Readable({
-      read () {
-        setTimeout(() => this.push('chunk'), 10)
-      }
-    })
+    const stream = ongoingStream()
+    t.teardown(() => stream.destroy())
     stream.once('close', () => resolveClosed(stream.destroyed))
     sendStream(res, 200, stream)
   })

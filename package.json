@@ -92,6 +92,6 @@
     "pre-commit": "npx nano-staged"
   },
   "dependencies": {
-    "@kikobeats/set-content-type": "~1.0.3"
+    "@kikobeats/set-content-type": "~1.0.6"
   }
 }
