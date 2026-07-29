@@ -190,13 +190,11 @@ test('sendStream(200, <Stream>) leaves content-type unset when unrecognized', as
 })
 
 test('sendStream(200, <Stream>) returns the response', async t => {
-  let returned
+  t.plan(1)
   const url = await runServer(t, (req, res) => {
-    returned = sendStream(res, 200, Readable.from(['woot'])) === res
+    t.is(sendStream(res, 200, Readable.from(['woot'])), res)
   })
   await got(url)
-
-  t.true(returned)
 })
 
 test('sendStream(200, <Stream>) onError can answer before the headers are sent', async t => {
