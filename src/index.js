@@ -10,11 +10,12 @@ const setContentType = (res, type) =>
 
 const sendStream = (res, statusCode, stream, { onError } = {}) => {
   res.statusCode = statusCode
-  // onError runs on the stream, not on the pipeline callback: by the time
-  // pipeline calls back it already destroyed res, so no reply can be written.
-  if (onError !== undefined) stream.once('error', error => onError(error, res))
-  // sniffContentType(res) already forwards to res, so it is the destination.
-  pipeline(stream, sniffContentType(res), () => {})
+  // not the pipeline callback: by then pipeline destroyed res, so no reply fits.
+  if (onError) stream.once('error', error => onError(error, res))
+  const destination = res.hasHeader('Content-Type')
+    ? res
+    : sniffContentType(res)
+  pipeline(stream, destination, () => {})
   return res
 }
 
