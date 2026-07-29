@@ -12,10 +12,7 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
   res.statusCode = statusCode
   // not the pipeline callback: by then pipeline destroyed res, so no reply fits.
   if (onError) stream.once('error', error => onError(error, res))
-  const destination = res.hasHeader('Content-Type')
-    ? res
-    : sniffContentType(res)
-  pipeline(stream, destination, () => {})
+  pipeline(stream, sniffContentType(res), () => {})
   return res
 }
 

@@ -10,6 +10,37 @@ const got = require('got')
 const send = require('..')
 const { sendStream } = require('..')
 
+const senders = [
+  ['send', send],
+  ['sendStream', sendStream]
+]
+
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
+
+// large enough that content-type detection resolves on the first chunk,
+// so the client sees data before the abort tests destroy the request.
+const PAST_DETECTION_SAMPLE = Buffer.alloc(8192, 7)
+
+const failingStream = () =>
+  new Readable({
+    read () {
+      this.destroy(new Error('stream failed'))
+    }
+  })
+
+const ongoingStream = () => {
+  let timer
+  return new Readable({
+    read () {
+      timer = setTimeout(() => this.push(PAST_DETECTION_SAMPLE), 10)
+    },
+    destroy (error, callback) {
+      clearTimeout(timer)
+      callback(error)
+    }
+  })
+}
+
 const closeServer = server => {
   server.closeAllConnections()
   return promisify(server.close.bind(server))()
@@ -77,19 +108,6 @@ test('send(200, <Stream>)', async t => {
   t.is(body, 'OK')
 })
 
-test('send(200, <Stream>) destroys the response when the stream fails', async t => {
-  const url = await runServer(t, (req, res) => {
-    const stream = new Readable({
-      read () {
-        this.destroy(new Error('stream failed'))
-      }
-    })
-    send(res, 200, stream)
-  })
-
-  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
-})
-
 test('send(200, <Stream>) destroys the response when the stream fails midway', async t => {
   const url = await runServer(t, (req, res) => {
     let sent = false
@@ -106,66 +124,37 @@ test('send(200, <Stream>) destroys the response when the stream fails midway', a
   await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
 })
 
-const PAST_DETECTION_SAMPLE = Buffer.alloc(8192, 7)
+for (const [name, sender] of senders) {
+  test(`${name}(200, <Stream>) destroys the response when the stream fails`, async t => {
+    const url = await runServer(t, (req, res) =>
+      sender(res, 200, failingStream())
+    )
 
-const ongoingStream = () => {
-  let started = false
-  let timer
-  return new Readable({
-    read () {
-      timer = setTimeout(() => {
-        if (started) return this.push(Buffer.alloc(64, 7))
-        started = true
-        this.push(PAST_DETECTION_SAMPLE)
-      }, 10)
-    },
-    destroy (error, callback) {
-      clearTimeout(timer)
-      callback(error)
-    }
+    await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+  })
+
+  test(`${name}(200, <Stream>) destroys the stream when the client goes away`, async t => {
+    t.timeout(5000)
+
+    let streamClosed
+    const closed = new Promise(resolve => {
+      streamClosed = resolve
+    })
+
+    const url = await runServer(t, (req, res) => {
+      const stream = ongoingStream()
+      t.teardown(() => stream.destroy())
+      stream.once('close', () => streamClosed(stream.destroyed))
+      sender(res, 200, stream)
+    })
+
+    const request = got.stream(url, { retry: 0 })
+    request.once('data', () => request.destroy())
+    request.once('error', () => {})
+
+    t.true(await closed)
   })
 }
-
-test('send(200, <Stream>) destroys the stream when the client goes away', async t => {
-  t.timeout(5000)
-
-  let streamClosed
-  const closed = new Promise(resolve => {
-    streamClosed = resolve
-  })
-
-  const url = await runServer(t, (req, res) => {
-    const stream = ongoingStream()
-    t.teardown(() => stream.destroy())
-    stream.once('close', () => streamClosed(stream.destroyed))
-    send(res, 200, stream)
-  })
-
-  const request = got.stream(url, { retry: 0 })
-  request.once('data', () => request.destroy())
-  request.once('error', () => {})
-
-  t.true(await closed)
-})
-
-const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
-
-const failingStream = () =>
-  new Readable({
-    read () {
-      this.destroy(new Error('stream failed'))
-    }
-  })
-
-test('sendStream(200, <Stream>)', async t => {
-  const url = await runServer(t, (req, res) =>
-    sendStream(res, 200, Readable.from(['woot']))
-  )
-  const { body, statusCode } = await got(url)
-
-  t.is(statusCode, 200)
-  t.is(body, 'woot')
-})
 
 test('sendStream(200, <Stream>) detects content-type from the payload', async t => {
   const url = await runServer(t, (req, res) =>
@@ -190,8 +179,10 @@ test('sendStream(200, <Stream>) leaves content-type unset when unrecognized', as
   const url = await runServer(t, (req, res) =>
     sendStream(res, 200, Readable.from(['woot']))
   )
-  const { headers } = await got(url)
+  const { body, headers, statusCode } = await got(url)
 
+  t.is(statusCode, 200)
+  t.is(body, 'woot')
   t.is(headers['content-type'], undefined)
 })
 
@@ -203,14 +194,6 @@ test('sendStream(200, <Stream>) returns the response', async t => {
   await got(url)
 
   t.true(returned)
-})
-
-test('sendStream(200, <Stream>) destroys the response when the stream fails', async t => {
-  const url = await runServer(t, (req, res) =>
-    sendStream(res, 200, failingStream())
-  )
-
-  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
 })
 
 test('sendStream(200, <Stream>) onError can answer before the headers are sent', async t => {
@@ -226,26 +209,4 @@ test('sendStream(200, <Stream>) onError can answer before the headers are sent',
   const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
 
   t.is(statusCode, 504)
-})
-
-test('sendStream(200, <Stream>) destroys the stream when the client goes away', async t => {
-  t.timeout(5000)
-
-  let resolveClosed
-  const closed = new Promise(resolve => {
-    resolveClosed = resolve
-  })
-
-  const url = await runServer(t, (req, res) => {
-    const stream = ongoingStream()
-    t.teardown(() => stream.destroy())
-    stream.once('close', () => resolveClosed(stream.destroyed))
-    sendStream(res, 200, stream)
-  })
-
-  const request = got.stream(url, { retry: 0 })
-  request.once('data', () => request.destroy())
-  request.once('error', () => {})
-
-  t.true(await closed)
 })

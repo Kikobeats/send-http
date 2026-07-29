@@ -21,6 +21,8 @@ It's like `res.send`, but:
 $ npm install send-http --save
 ```
 
+It requires Node.js >= 24.
+
 ## Usage
 
 ```js
@@ -49,6 +51,8 @@ http.createServer((req, res) => {
 })
 ```
 
+When the body is a stream, the `Content-Type` is detected from its first bytes via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type), so a proxied body keeps the type of whatever produced it. An already set `Content-Type` is respected, and an unrecognized payload leaves it unset.
+
 When a stream fails, the response is destroyed with the error: the failure reaches the client instead of the process. Use `sendStream` to decide what the client gets instead:
 
 ```js
@@ -64,8 +68,6 @@ http.createServer((req, res) => {
   })
 })
 ```
-
-The `Content-Type` is detected from the first bytes of the stream via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type), so a proxied body keeps the type of whatever produced it. An already set `Content-Type` is respected, and an unrecognized payload leaves it unset.
 
 `onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
 
