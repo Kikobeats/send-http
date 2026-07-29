@@ -19,6 +19,8 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
 const create =
   send =>
     (res, statusCode = 200, data = null) => {
+      if (isStream(data)) return sendStream(res, statusCode, data)
+
       res.statusCode = statusCode
 
       if (data === null) return res.end()
@@ -28,8 +30,6 @@ const create =
         res.setHeader('Content-Length', data.length)
         return res.end(data)
       }
-
-      if (isStream(data)) return sendStream(res, statusCode, data)
 
       let str = data
       const type = typeof data

@@ -28,6 +28,17 @@ const failingStream = () =>
     }
   })
 
+const failingMidwayStream = () => {
+  let sent = false
+  return new Readable({
+    read () {
+      if (sent) return this.destroy(new Error('stream failed'))
+      sent = true
+      this.push('partial')
+    }
+  })
+}
+
 const ongoingStream = () => {
   let timer
   return new Readable({
@@ -108,26 +119,18 @@ test('send(200, <Stream>)', async t => {
   t.is(body, 'OK')
 })
 
-test('send(200, <Stream>) destroys the response when the stream fails midway', async t => {
-  const url = await runServer(t, (req, res) => {
-    let sent = false
-    const stream = new Readable({
-      read () {
-        if (sent) return this.destroy(new Error('stream failed'))
-        sent = true
-        this.push('partial')
-      }
-    })
-    send(res, 200, stream)
-  })
-
-  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
-})
-
 for (const [name, sender] of senders) {
   test(`${name}(200, <Stream>) destroys the response when the stream fails`, async t => {
     const url = await runServer(t, (req, res) =>
       sender(res, 200, failingStream())
+    )
+
+    await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+  })
+
+  test(`${name}(200, <Stream>) destroys the response when the stream fails midway`, async t => {
+    const url = await runServer(t, (req, res) =>
+      sender(res, 200, failingMidwayStream())
     )
 
     await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })

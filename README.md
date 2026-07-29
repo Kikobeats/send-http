@@ -71,7 +71,7 @@ http.createServer((req, res) => {
 
 `onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
 
-Additionally, you can `.create` to customize the behvaior before sending the data:
+Additionally, you can `.create` to customize the behvaior before sending a buffered body (streams go through `sendStream`):
 
 ```js
 const send = require('send-http').create((res, data) => {
