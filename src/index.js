@@ -1,5 +1,6 @@
 'use strict'
 
+const sniffContentType = require('@kikobeats/set-content-type')
 const { pipeline } = require('node:stream')
 
 const isStream = input => input != null && typeof input.pipe === 'function'
@@ -12,7 +13,9 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
   // onError runs on the stream, not on the pipeline callback: by the time
   // pipeline calls back it already destroyed res, so no reply can be written.
   if (onError !== undefined) stream.once('error', error => onError(error, res))
-  return pipeline(stream, res, () => {})
+  // sniffContentType(res) already forwards to res, so it is the destination.
+  pipeline(stream, sniffContentType(res), () => {})
+  return res
 }
 
 const create =
@@ -28,10 +31,7 @@ const create =
         return res.end(data)
       }
 
-      if (isStream(data)) {
-        setContentType(res, 'application/octet-stream')
-        return sendStream(res, statusCode, data)
-      }
+      if (isStream(data)) return sendStream(res, statusCode, data)
 
       let str = data
       const type = typeof data

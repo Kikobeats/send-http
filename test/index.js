@@ -131,6 +131,8 @@ test('send(200, <Stream>) destroys the stream when the client goes away', async 
   t.true(await closed)
 })
 
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
+
 const failingStream = () =>
   new Readable({
     read () {
@@ -148,7 +150,26 @@ test('sendStream(200, <Stream>)', async t => {
   t.is(body, 'woot')
 })
 
-test('sendStream(200, <Stream>) leaves content-type unset', async t => {
+test('sendStream(200, <Stream>) detects content-type from the payload', async t => {
+  const url = await runServer(t, (req, res) =>
+    sendStream(res, 200, Readable.from([JPEG]))
+  )
+  const { headers } = await got(url)
+
+  t.is(headers['content-type'], 'image/jpeg')
+})
+
+test('sendStream(200, <Stream>) keeps an already set content-type', async t => {
+  const url = await runServer(t, (req, res) => {
+    res.setHeader('content-type', 'image/png')
+    sendStream(res, 200, Readable.from([JPEG]))
+  })
+  const { headers } = await got(url)
+
+  t.is(headers['content-type'], 'image/png')
+})
+
+test('sendStream(200, <Stream>) leaves content-type unset when unrecognized', async t => {
   const url = await runServer(t, (req, res) =>
     sendStream(res, 200, Readable.from(['woot']))
   )
@@ -157,13 +178,14 @@ test('sendStream(200, <Stream>) leaves content-type unset', async t => {
   t.is(headers['content-type'], undefined)
 })
 
-test('send(200, <Stream>) defaults content-type to octet-stream', async t => {
-  const url = await runServer(t, (req, res) =>
-    send(res, 200, Readable.from(['woot']))
-  )
-  const { headers } = await got(url)
+test('sendStream(200, <Stream>) returns the response', async t => {
+  let returned
+  const url = await runServer(t, (req, res) => {
+    returned = sendStream(res, 200, Readable.from(['woot'])) === res
+  })
+  await got(url)
 
-  t.is(headers['content-type'], 'application/octet-stream')
+  t.true(returned)
 })
 
 test('sendStream(200, <Stream>) destroys the response when the stream fails', async t => {
