@@ -8,6 +8,49 @@ const test = require('ava').default
 const got = require('got')
 
 const send = require('..')
+const { sendStream } = send
+
+const senders = [
+  ['send', send],
+  ['sendStream', sendStream]
+]
+
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46])
+
+// large enough that content-type detection resolves on the first chunk,
+// so the client sees data before the abort tests destroy the request.
+const PAST_DETECTION_SAMPLE = Buffer.alloc(8192, 7)
+
+const failingStream = () =>
+  new Readable({
+    read () {
+      this.destroy(new Error('stream failed'))
+    }
+  })
+
+const failingMidwayStream = () => {
+  let sent = false
+  return new Readable({
+    read () {
+      if (sent) return this.destroy(new Error('stream failed'))
+      sent = true
+      this.push('partial')
+    }
+  })
+}
+
+const ongoingStream = () => {
+  let timer
+  return new Readable({
+    read () {
+      timer = setTimeout(() => this.push(PAST_DETECTION_SAMPLE), 10)
+    },
+    destroy (error, callback) {
+      clearTimeout(timer)
+      callback(error)
+    }
+  })
+}
 
 const closeServer = server => {
   server.closeAllConnections()
@@ -76,56 +119,95 @@ test('send(200, <Stream>)', async t => {
   t.is(body, 'OK')
 })
 
-test('send(200, <Stream>) destroys the response when the stream fails', async t => {
-  const url = await runServer(t, (req, res) => {
-    const stream = new Readable({
-      read () {
-        this.destroy(new Error('stream failed'))
-      }
-    })
-    send(res, 200, stream)
+for (const [name, sender] of senders) {
+  test(`${name}(200, <Stream>) destroys the response when the stream fails`, async t => {
+    const url = await runServer(t, (req, res) =>
+      sender(res, 200, failingStream())
+    )
+
+    await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
   })
 
-  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+  test(`${name}(200, <Stream>) destroys the response when the stream fails midway`, async t => {
+    const url = await runServer(t, (req, res) =>
+      sender(res, 200, failingMidwayStream())
+    )
+
+    await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+  })
+
+  test(`${name}(200, <Stream>) destroys the stream when the client goes away`, async t => {
+    t.timeout(5000)
+
+    let streamClosed
+    const closed = new Promise(resolve => {
+      streamClosed = resolve
+    })
+
+    const url = await runServer(t, (req, res) => {
+      const stream = ongoingStream()
+      t.teardown(() => stream.destroy())
+      stream.once('close', () => streamClosed(stream.destroyed))
+      sender(res, 200, stream)
+    })
+
+    const request = got.stream(url, { retry: 0 })
+    request.once('data', () => request.destroy())
+    request.once('error', () => {})
+
+    t.true(await closed)
+  })
+}
+
+test('sendStream(200, <Stream>) detects content-type from the payload', async t => {
+  const url = await runServer(t, (req, res) =>
+    sendStream(res, 200, Readable.from([JPEG]))
+  )
+  const { headers } = await got(url)
+
+  t.is(headers['content-type'], 'image/jpeg')
 })
 
-test('send(200, <Stream>) destroys the response when the stream fails midway', async t => {
+test('sendStream(200, <Stream>) keeps an already set content-type', async t => {
   const url = await runServer(t, (req, res) => {
-    let sent = false
-    const stream = new Readable({
-      read () {
-        if (sent) return this.destroy(new Error('stream failed'))
-        sent = true
-        this.push('partial')
-      }
-    })
-    send(res, 200, stream)
+    res.setHeader('content-type', 'image/png')
+    sendStream(res, 200, Readable.from([JPEG]))
   })
+  const { headers } = await got(url)
 
-  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+  t.is(headers['content-type'], 'image/png')
 })
 
-test('send(200, <Stream>) destroys the stream when the client goes away', async t => {
-  t.timeout(5000)
+test('sendStream(200, <Stream>) leaves content-type unset when unrecognized', async t => {
+  const url = await runServer(t, (req, res) =>
+    sendStream(res, 200, Readable.from(['woot']))
+  )
+  const { body, headers, statusCode } = await got(url)
 
-  let streamClosed
-  const closed = new Promise(resolve => {
-    streamClosed = resolve
-  })
+  t.is(statusCode, 200)
+  t.is(body, 'woot')
+  t.is(headers['content-type'], undefined)
+})
 
+test('sendStream(200, <Stream>) returns the response', async t => {
+  t.plan(1)
   const url = await runServer(t, (req, res) => {
-    const stream = new Readable({
-      read () {
-        setTimeout(() => this.push('chunk'), 10)
+    t.is(sendStream(res, 200, Readable.from(['woot'])), res)
+  })
+  await got(url)
+})
+
+test('sendStream(200, <Stream>) onError can answer before the headers are sent', async t => {
+  const url = await runServer(t, (req, res) =>
+    sendStream(res, 200, failingStream(), {
+      onError: (error, res) => {
+        t.is(error.message, 'stream failed')
+        res.statusCode = 504
+        res.end()
       }
     })
-    stream.once('close', () => streamClosed(stream.destroyed))
-    send(res, 200, stream)
-  })
+  )
+  const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
 
-  const request = got.stream(url, { retry: 0 })
-  request.once('data', () => request.destroy())
-  request.once('error', () => {})
-
-  t.true(await closed)
+  t.is(statusCode, 504)
 })

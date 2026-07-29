@@ -46,7 +46,7 @@
     "standard-version": "latest"
   },
   "engines": {
-    "node": ">= 18"
+    "node": ">= 24"
   },
   "files": [
     "src/index.js"
@@ -90,5 +90,8 @@
   "simple-git-hooks": {
     "commit-msg": "npx commitlint --edit",
     "pre-commit": "npx nano-staged"
+  },
+  "dependencies": {
+    "@kikobeats/set-content-type": "~1.0.6"
   }
 }

@@ -10,7 +10,7 @@ It's like `res.send`, but:
 
 - It accepts any kind of value (number, string, object, stream, etc).
 - It checks http.IncomingMessage is writable before write.
-- It determines `Content-Type` based on the data type.
+- It determines `Content-Type` from the data: the type for values, the first bytes for streams.
 - It optionally sets status code as third argument.
 - It tears down both ends when a stream fails or the client disconnects.
 - It's small (~50 LOC).
@@ -20,6 +20,8 @@ It's like `res.send`, but:
 ```bash
 $ npm install send-http --save
 ```
+
+It requires Node.js >= 24.
 
 ## Usage
 
@@ -49,7 +51,27 @@ http.createServer((req, res) => {
 })
 ```
 
-Additionally, you can `.create` to customize the behvaior before sending the data:
+When the body is a stream, the `Content-Type` is detected from its first bytes via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type), so a proxied body keeps the type of whatever produced it. An already set `Content-Type` is respected, and an unrecognized payload leaves it unset.
+
+When a stream fails, the response is destroyed with the error: the failure reaches the client instead of the process. Use `sendStream` to decide what the client gets instead:
+
+```js
+const { sendStream } = require('send-http')
+
+http.createServer((req, res) => {
+  sendStream(res, 200, got.stream('https://example.com'), {
+    onError: (error, res) => {
+      if (res.headersSent) return res.destroy(error)
+      res.statusCode = 504
+      res.end()
+    }
+  })
+})
+```
+
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
+
+Additionally, you can `.create` to customize the behvaior before sending a buffered body (streams go through `sendStream`):
 
 ```js
 const send = require('send-http').create((res, data) => {
