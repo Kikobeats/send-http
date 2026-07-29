@@ -65,6 +65,8 @@ http.createServer((req, res) => {
 })
 ```
 
+`sendStream` does not set a `Content-Type`: a proxied body should keep the type of whatever produced it, and claiming `application/octet-stream` up front would stop anything downstream from detecting the real one. `send` still defaults to `application/octet-stream`.
+
 `onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
 
 Additionally, you can `.create` to customize the behvaior before sending the data:

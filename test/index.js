@@ -148,6 +148,24 @@ test('sendStream(200, <Stream>)', async t => {
   t.is(body, 'woot')
 })
 
+test('sendStream(200, <Stream>) leaves content-type unset', async t => {
+  const url = await runServer(t, (req, res) =>
+    sendStream(res, 200, Readable.from(['woot']))
+  )
+  const { headers } = await got(url)
+
+  t.is(headers['content-type'], undefined)
+})
+
+test('send(200, <Stream>) defaults content-type to octet-stream', async t => {
+  const url = await runServer(t, (req, res) =>
+    send(res, 200, Readable.from(['woot']))
+  )
+  const { headers } = await got(url)
+
+  t.is(headers['content-type'], 'application/octet-stream')
+})
+
 test('sendStream(200, <Stream>) destroys the response when the stream fails', async t => {
   const url = await runServer(t, (req, res) =>
     sendStream(res, 200, failingStream())

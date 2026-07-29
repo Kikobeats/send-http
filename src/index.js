@@ -9,7 +9,6 @@ const setContentType = (res, type) =>
 
 const sendStream = (res, statusCode, stream, { onError } = {}) => {
   res.statusCode = statusCode
-  setContentType(res, 'application/octet-stream')
   // onError runs on the stream, not on the pipeline callback: by the time
   // pipeline calls back it already destroyed res, so no reply can be written.
   if (onError !== undefined) stream.once('error', error => onError(error, res))
@@ -29,7 +28,10 @@ const create =
         return res.end(data)
       }
 
-      if (isStream(data)) return sendStream(res, statusCode, data)
+      if (isStream(data)) {
+        setContentType(res, 'application/octet-stream')
+        return sendStream(res, statusCode, data)
+      }
 
       let str = data
       const type = typeof data
