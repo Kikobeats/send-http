@@ -60,7 +60,6 @@ const ongoingStream = () => {
   })
 }
 
-// `asyncDispose` waits for the server to close, but not for keep-alive sockets.
 const CHUNK = Buffer.alloc(64, 7)
 
 // answers with a chunk and stays open, so the client is reading when it leaves.
@@ -69,6 +68,7 @@ const writeChunk = (req, res) => {
   res.write(CHUNK)
 }
 
+// `asyncDispose` waits for the server to close, but not for keep-alive sockets.
 const closeServer = server => {
   server.closeAllConnections()
   return server[Symbol.asyncDispose]()
@@ -343,19 +343,19 @@ test('proxy(<Stream>) detects content-type when the upstream omits it', async t 
 
 test('proxy(<Stream>) destroys the upstream when the client goes away', async t => {
   let upstreamRes
-  const { promise: upstreamRequested, resolve: onRequested } =
+  // resolving with a promise adopts it, so this settles on the upstream close.
+  const { promise: upstreamClosed, resolve: settleOnClose } =
     Promise.withResolvers()
 
   const upstream = await runServer(t, (req, res) => {
     upstreamRes = res
     writeChunk(req, res)
-    onRequested(onClose(res))
+    settleOnClose(onClose(res))
   })
 
   const request = await runProxy(t, upstream, ALLOWED)
   request.once('data', () => request.destroy())
 
-  const upstreamClosed = await upstreamRequested
   await upstreamClosed
 
   t.true(upstreamRes.destroyed)
