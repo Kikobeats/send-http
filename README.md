@@ -14,7 +14,7 @@ It's like `res.send`, but:
 - It optionally sets status code as third argument.
 - It tears down both ends when a stream fails or the client disconnects.
 - It proxies an HTTP response with `proxy`, keeping the upstream status and the headers you allow.
-- It's small (~80 LOC).
+- It's small (~115 LOC, one dependency).
 
 ## Install
 
@@ -71,7 +71,7 @@ http.createServer((req, res) => {
 })
 ```
 
-`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you.
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you. Once the headers are out there is nothing left to answer with, so a reply written then is ignored rather than thrown at you, and the client gets the reset.
 
 `send` takes the same options as a fourth argument and forwards them when the body is a stream, so `send(res, 200, stream, { onError })` is `sendStream(res, 200, stream, { onError })`.
 

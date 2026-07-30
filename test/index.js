@@ -225,6 +225,28 @@ test('sendStream(200, <Stream>) returns the response', async t => {
   await got(url)
 })
 
+test('send(200, <String>) leaves an already answered response alone', async t => {
+  const url = await runServer(t, (req, res) => {
+    send(res, 200, 'woot')
+    t.is(send(res, 502, { error: 'too late' }), res)
+  })
+  const { body, statusCode } = await got(url, { throwHttpErrors: false })
+
+  t.is(statusCode, 200)
+  t.is(body, 'woot')
+})
+
+test('send() inside onError cannot answer once the body started', async t => {
+  const url = await runServer(t, (req, res) => {
+    res.setHeader('content-type', 'text/plain; charset=utf-8')
+    sendStream(res, 200, failingMidwayStream(), {
+      onError: (error, res) => send(res, 502, { error: error.message })
+    })
+  })
+
+  await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
+})
+
 const BUFFERED = [
   ['String', 'woot', 'woot'],
   ['Object', { a: 'b' }, '{"a":"b"}'],
