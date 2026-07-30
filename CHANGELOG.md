@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.0.0](https://github.com/Kikobeats/send-http/compare/v2.0.0...v3.0.0) (2026-07-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* a stream failing before anything reached the client closes the
+response without the error instead of destroying it with one, an `onError` that
+writes a reply now suppresses the teardown, and sending into an already closed
+response destroys the stream instead of throwing.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01FTLnkWiboJXez4BcK2JikW
+
+### Features
+
+* add proxy ([f7f056c](https://github.com/Kikobeats/send-http/commit/f7f056cbd6af49e90a7565c346a369c74a900741))
+
 ## 2.0.0 (2026-07-29)
 
 
