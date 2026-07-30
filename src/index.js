@@ -17,18 +17,14 @@ const setContentType = (res, type) => {
  * body: past either point there is no reply left to make. */
 const canAnswer = res => !res.headersSent && !res.writableEnded
 
-/** Closes a response nobody answered, without the error: an upstream that fails
- * before saying anything is not a failure of the response itself. */
-const destroyUnanswered = res => {
-  if (canAnswer(res)) res.destroy()
-}
-
 /** Registered on the stream rather than through `pipeline`, which by its
- * callback has already destroyed the response. */
+ * callback has already destroyed the response. A response nobody answered is
+ * closed without the error: an upstream that fails before saying anything is
+ * not a failure of the response itself. */
 const forwardErrors = (stream, res, onError) =>
   stream.once('error', error => {
     if (onError) onError(error, res)
-    destroyUnanswered(res)
+    if (canAnswer(res)) res.destroy()
   })
 
 const pipeStream = (res, statusCode, stream) => {
@@ -82,8 +78,7 @@ const serialize = (res, data) => {
     return data
   }
 
-  const type = typeof data
-  const isJSON = type === 'object' || type === 'number' || type === 'boolean'
+  const isJSON = typeof data !== 'string'
 
   setContentType(
     res,

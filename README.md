@@ -4,17 +4,17 @@
 [![Coverage Status](https://img.shields.io/coveralls/Kikobeats/send-http.svg?style=flat-square)](https://coveralls.io/github/Kikobeats/send-http)
 [![NPM Status](https://img.shields.io/npm/dm/send-http.svg?style=flat-square)](https://www.npmjs.org/package/send-http)
 
-> A straightforward way to send data for http.IncomingMessage.
+> A straightforward way to send data for http.ServerResponse.
 
 It's like `res.send`, but:
 
 - It accepts any kind of value (number, string, object, stream, etc).
-- It checks http.IncomingMessage is writable before write.
+- It leaves a response that already answered alone, rather than throwing at you.
 - It determines `Content-Type` from the data: the type for values, the first bytes for streams.
-- It optionally sets status code as third argument.
+- It optionally sets the status code as second argument.
 - It tears down both ends when a stream fails or the client disconnects.
 - It proxies an HTTP response with `proxy`, keeping the upstream status and the headers you allow.
-- It's small (~115 LOC, one dependency).
+- It's small (~110 LOC, one dependency).
 
 ## Install
 
@@ -98,7 +98,7 @@ The upstream dies with the client in every window: while streaming, while still 
 
 ### create
 
-Customizes the write of a buffered body (streams go through `sendStream`). The hook runs after the `Content-Type` and `Content-Length` are set, and receives the body as a `Buffer` whatever it was given:
+Customizes the write of a buffered body (streams go through `sendStream`, and an empty body ends the response without a write to customize). The hook runs after the `Content-Type` and `Content-Length` are set, and receives the body as a `Buffer` whatever it was given:
 
 ```js
 const send = require('send-http').create((res, data) => {
