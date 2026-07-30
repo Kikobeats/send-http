@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## 3.1.0 (2026-07-30)
+
+
+### Features
+
+* expose canAnswer ([0e3703c](https://github.com/Kikobeats/send-http/commit/0e3703c31f5325c73b18ff2f7624e23090b8ccb8))
+
 ### 3.0.2 (2026-07-30)
 
 ### 3.0.1 (2026-07-30)
