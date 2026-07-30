@@ -77,6 +77,13 @@ const closeServer = server => {
 // `events.once` rejects on `error`, and these streams close after failing.
 const onClose = stream => new Promise(resolve => stream.once('close', resolve))
 
+// these requests are destroyed on purpose, so the abort is not a failure.
+const openRequest = url => {
+  const request = got.stream(url, { retry: 0 })
+  request.once('error', () => {})
+  return request
+}
+
 const runServer = async (t, handler) => {
   const server = createServer(handler)
   const url = await listen(server)
@@ -167,9 +174,8 @@ for (const [name, sender] of senders) {
       sender(res, 200, stream)
     })
 
-    const request = got.stream(url, { retry: 0 })
+    const request = openRequest(url)
     request.once('data', () => request.destroy())
-    request.once('error', () => {})
 
     const stream = await sent
     await onClose(stream)
@@ -286,9 +292,7 @@ const runProxy = async (t, upstreamUrl, options) => {
   const url = await runServer(t, (req, res) =>
     proxy(res, got.stream(upstreamUrl, { retry: 0 }), options)
   )
-  const request = got.stream(url, { retry: 0 })
-  request.once('error', () => {})
-  return request
+  return openRequest(url)
 }
 
 const ALLOWED = { headers: ['content-type'] }
@@ -338,18 +342,23 @@ test('proxy(<Stream>) detects content-type when the upstream omits it', async t 
 })
 
 test('proxy(<Stream>) destroys the upstream when the client goes away', async t => {
-  let upstreamClosed
+  let upstreamRes
+  const { promise: upstreamRequested, resolve: onRequested } =
+    Promise.withResolvers()
 
   const upstream = await runServer(t, (req, res) => {
-    upstreamClosed = onClose(res)
+    upstreamRes = res
     writeChunk(req, res)
+    onRequested(onClose(res))
   })
 
   const request = await runProxy(t, upstream, ALLOWED)
   request.once('data', () => request.destroy())
 
+  const upstreamClosed = await upstreamRequested
   await upstreamClosed
-  t.pass()
+
+  t.true(upstreamRes.destroyed)
 })
 
 test('proxy(<Stream>) destroys the upstream when the client goes away before it responds', async t => {
