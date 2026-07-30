@@ -27,7 +27,7 @@ const canAnswer = res => !res.headersSent && !res.writableEnded
  * not a failure of the response itself. */
 const forwardErrors = (stream, res, onError) =>
   stream.once('error', error => {
-    if (onError) onError(error, res)
+    onError?.(error, res)
     if (canAnswer(res)) res.destroy()
   })
 
@@ -73,22 +73,25 @@ const proxy = (res, upstream, { headers = [], onError } = {}) => {
   return res
 }
 
-/** Declares what the body is and hands it over as bytes: a string measured,
- * then written, then encoded is three walks of the same payload. */
-const serialize = (res, data) => {
+/** Declares the body on the response and hands it over as bytes: a string
+ * measured, then written, then encoded is three walks of the same payload. */
+const declareBody = (res, data) => {
+  let payload = data
+
   if (Buffer.isBuffer(data)) {
     setContentType(res, 'application/octet-stream')
-    return data
+  } else {
+    const isJSON = typeof data !== 'string'
+
+    setContentType(
+      res,
+      isJSON ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
+    )
+    payload = Buffer.from(isJSON ? JSON.stringify(data) : data)
   }
 
-  const isJSON = typeof data !== 'string'
-
-  setContentType(
-    res,
-    isJSON ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
-  )
-
-  return Buffer.from(isJSON ? JSON.stringify(data) : data)
+  res.setHeader('content-length', payload.length)
+  return payload
 }
 
 const create =
@@ -101,10 +104,7 @@ const create =
 
       if (data === null) return res.end()
 
-      const payload = serialize(res, data)
-      res.setHeader('content-length', payload.length)
-
-      return send(res, payload)
+      return send(res, declareBody(res, data))
     }
 
 module.exports = create((res, data) => res.end(data))

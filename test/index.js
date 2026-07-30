@@ -170,6 +170,21 @@ for (const [name, sender] of senders) {
     t.true(stream.destroyed)
   })
 
+  test(`${name}(200, <Stream>) destroys the stream when the response is already closed`, async t => {
+    const stream = ongoingStream()
+    const closed = onClose(stream)
+
+    const url = await runServer(t, (req, res) => {
+      res.destroy()
+      res.once('close', () => sender(res, 200, stream))
+    })
+
+    await t.throwsAsync(got(url, { retry: 0 }))
+    await closed
+
+    t.true(stream.destroyed)
+  })
+
   test(`${name}(200, <Stream>) onError can answer before the headers are sent`, async t => {
     const url = await runServer(t, (req, res) =>
       sender(res, 200, failingStream(), {
@@ -402,19 +417,4 @@ test('proxy(<Stream>) onError can answer before the headers are sent', async t =
   const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
 
   t.is(statusCode, 504)
-})
-
-test('sendStream(200, <Stream>) destroys the stream when the response is already closed', async t => {
-  const stream = ongoingStream()
-  const closed = onClose(stream)
-
-  const url = await runServer(t, (req, res) => {
-    res.destroy()
-    res.once('close', () => sendStream(res, 200, stream))
-  })
-
-  await t.throwsAsync(got(url, { retry: 0 }))
-  await closed
-
-  t.true(stream.destroyed)
 })
