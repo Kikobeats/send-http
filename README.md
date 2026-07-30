@@ -4,17 +4,17 @@
 [![Coverage Status](https://img.shields.io/coveralls/Kikobeats/send-http.svg?style=flat-square)](https://coveralls.io/github/Kikobeats/send-http)
 [![NPM Status](https://img.shields.io/npm/dm/send-http.svg?style=flat-square)](https://www.npmjs.org/package/send-http)
 
-> A straightforward way to send data for http.IncomingMessage.
+> A straightforward way to send data for http.ServerResponse.
 
 It's like `res.send`, but:
 
 - It accepts any kind of value (number, string, object, stream, etc).
-- It checks http.IncomingMessage is writable before write.
+- It leaves a response that already answered alone, rather than throwing at you.
 - It determines `Content-Type` from the data: the type for values, the first bytes for streams.
-- It optionally sets status code as third argument.
+- It optionally sets the status code as second argument.
 - It tears down both ends when a stream fails or the client disconnects.
 - It proxies an HTTP response with `proxy`, keeping the upstream status and the headers you allow.
-- It's small (~80 LOC).
+- It's small (~110 LOC, one dependency).
 
 ## Install
 
@@ -71,7 +71,9 @@ http.createServer((req, res) => {
 })
 ```
 
-`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you.
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you. Once the headers are out there is nothing left to answer with: `send` returns the response untouched rather than throwing `ERR_HTTP_HEADERS_SENT` at you from inside a listener, and the client sees the failure as a reset.
+
+`send` takes the same options as a fourth argument and forwards them when the body is a stream, so `send(res, 200, stream, { onError })` is `sendStream(res, 200, stream, { onError })`.
 
 ### proxy
 
@@ -94,15 +96,28 @@ Piping waits for the upstream response, which is what makes the allowlist worth 
 
 The upstream dies with the client in every window: while streaming, while still waiting for the upstream to answer, and when the client had already gone before `proxy` was ever called.
 
-Additionally, you can `.create` to customize the behvaior before sending a buffered body (streams go through `sendStream`):
+### create
+
+Customizes the write of a buffered body (streams go through `sendStream`, and an empty body ends the response without a write to customize). The hook runs after the `Content-Type` and `Content-Length` are set, and receives the body as a `Buffer` whatever it was given:
 
 ```js
 const send = require('send-http').create((res, data) => {
-  if (Buffer.byteLength(data) > 6291456) {
+  if (data.length > 6291456) {
     throw new Error('Payload size is over 6mb')
   }
   return res.end(data)
 })
+```
+
+### isStream
+
+The predicate behind the dispatch, exported for reusing the same rule:
+
+```js
+const { isStream } = require('send-http')
+
+isStream(got.stream('https://example.com')) // => true
+isStream({}) // => false
 ```
 
 ## License

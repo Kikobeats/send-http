@@ -1,6 +1,6 @@
 {
   "name": "send-http",
-  "description": "A straightforward way to send data for http.IncomingMessage.",
+  "description": "A straightforward way to send data for http.ServerResponse.",
   "homepage": "https://github.com/Kikobeats/send-http",
   "version": "3.0.0",
   "main": "src/index.js",
