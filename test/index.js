@@ -310,6 +310,48 @@ test('proxy(<Stream>) copies only the allowed headers', async t => {
   t.is(response.headers['x-secret'], undefined)
 })
 
+test('proxy(<Stream>) copies the headers that describe the body by default', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, {
+      'accept-ranges': 'bytes',
+      'content-disposition': 'attachment; filename="woot.txt"',
+      'content-length': 4,
+      'content-type': 'text/plain',
+      'x-secret': 'nope'
+    })
+    res.end('woot')
+  })
+
+  const request = await runProxy(t, upstream)
+  const [response] = await once(request, 'response')
+
+  for (const header of send.STREAM_ALLOWED_HEADERS) {
+    t.not(
+      response.headers[header],
+      undefined,
+      `"${header}" should have been copied`
+    )
+  }
+  t.is(response.headers['x-secret'], undefined)
+})
+
+test('proxy(<Stream>) copies nothing when the allowlist is empty', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, {
+      'content-type': 'text/plain',
+      'accept-ranges': 'bytes'
+    })
+    res.end(JPEG)
+  })
+
+  const request = await runProxy(t, upstream, { headers: [] })
+  const [response] = await once(request, 'response')
+
+  t.is(response.headers['accept-ranges'], undefined)
+  // nothing said what the body is, so it goes back to being sniffed
+  t.is(response.headers['content-type'], 'image/jpeg')
+})
+
 test('proxy(<Stream>) keeps the upstream status code', async t => {
   const upstream = await runServer(t, (req, res) => {
     res.writeHead(206, { 'content-type': 'text/plain' })

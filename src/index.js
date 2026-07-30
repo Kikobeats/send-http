@@ -51,7 +51,22 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
   return pipeStream(res, statusCode, stream)
 }
 
-const proxy = (res, upstream, { headers = [], onError } = {}) => {
+/** What a relayed response cannot be read without: the type and the length that
+ * describe the body, the filename it arrives under, and the range support that
+ * makes it resumable. Everything else is a fact about the upstream, not the
+ * payload, and stops here. */
+const STREAM_ALLOWED_HEADERS = [
+  'accept-ranges',
+  'content-disposition',
+  'content-length',
+  'content-type'
+]
+
+const proxy = (
+  res,
+  upstream,
+  { headers = STREAM_ALLOWED_HEADERS, onError } = {}
+) => {
   // piping only guards from the moment it starts, which is a response away.
   if (res.closed) upstream.destroy()
   else res.once('close', () => upstream.destroy())
@@ -111,3 +126,4 @@ module.exports.create = create
 module.exports.isStream = isStream
 module.exports.proxy = proxy
 module.exports.sendStream = sendStream
+module.exports.STREAM_ALLOWED_HEADERS = STREAM_ALLOWED_HEADERS
