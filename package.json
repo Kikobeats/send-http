@@ -1,6 +1,6 @@
 {
   "name": "send-http",
-  "description": "A straightforward way to send data for http.ServerResponse.",
+  "description": "Send any value on an HTTP ServerResponse with automatic Content-Type detection — like res.send for Node.js.",
   "homepage": "https://github.com/Kikobeats/send-http",
   "version": "3.2.0",
   "main": "src/index.js",
@@ -21,12 +21,13 @@
     "buffer",
     "content-type",
     "http",
-    "number",
-    "request",
+    "middleware",
+    "proxy",
     "res",
+    "response",
     "send",
-    "stream",
-    "string"
+    "server",
+    "stream"
   ],
   "dependencies": {
     "@kikobeats/set-content-type": "~1.0.6"
