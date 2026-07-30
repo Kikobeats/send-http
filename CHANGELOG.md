@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### 3.0.1 (2026-07-30)
+
 ## [3.0.0](https://github.com/Kikobeats/send-http/compare/v2.0.0...v3.0.0) (2026-07-30)
 
 
