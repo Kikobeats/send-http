@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## 3.2.0 (2026-07-30)
+
+
+### Features
+
+* default the proxy allowlist ([a6498e4](https://github.com/Kikobeats/send-http/commit/a6498e4c5b45417c5245ad9c3f67836c30c68206))
+
 ## 3.1.0 (2026-07-30)
 
 
