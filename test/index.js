@@ -61,6 +61,14 @@ const ongoingStream = () => {
 }
 
 // `asyncDispose` waits for the server to close, but not for keep-alive sockets.
+const CHUNK = Buffer.alloc(64, 7)
+
+// answers with a chunk and stays open, so the client is reading when it leaves.
+const writeChunk = (req, res) => {
+  res.writeHead(200, { 'content-type': 'application/octet-stream' })
+  res.write(CHUNK)
+}
+
 const closeServer = server => {
   server.closeAllConnections()
   return server[Symbol.asyncDispose]()
@@ -84,39 +92,38 @@ test('send(200, <null>)', async t => {
   t.is(body, '')
 })
 
-test('send(200, <String>)', async t => {
-  const url = await runServer(t, (req, res) => send(res, 200, 'woot'))
-  const { body, statusCode } = await got(url)
+const JSON_TYPE = 'application/json; charset=utf-8'
 
-  t.is(statusCode, 200)
-  t.is(body, 'woot')
-})
+const BUFFERED = [
+  ['String', 'woot', 'woot', 'text/plain; charset=utf-8'],
+  ['Object', { a: 'b' }, '{"a":"b"}', JSON_TYPE],
+  ['Number', 2, '2', JSON_TYPE],
+  ['Buffer', Buffer.from('muscle'), 'muscle', 'application/octet-stream']
+]
 
-test('send(200, <Object>)', async t => {
-  const url = await runServer(t, (req, res) => send(res, 200, { a: 'b' }))
-  const { body, statusCode } = await got(url, { responseType: 'json' })
+for (const [name, data, expected, type] of BUFFERED) {
+  test(`send(200, <${name}>)`, async t => {
+    const url = await runServer(t, (req, res) => send(res, 200, data))
+    const { body, headers, statusCode } = await got(url)
 
-  t.is(statusCode, 200)
-  t.deepEqual(body, { a: 'b' })
-})
+    t.is(statusCode, 200)
+    t.is(body, expected)
+    t.is(headers['content-type'], type)
+  })
 
-test('send(200, <Number>)', async t => {
-  const url = await runServer(t, (req, res) => send(res, 200, 2))
-  const { body, statusCode } = await got(url, { responseType: 'json' })
+  test(`create()(200, <${name}>) hands the body to the hook`, async t => {
+    const hooked = create((res, payload) => {
+      t.true(Buffer.isBuffer(payload))
+      t.is(payload.toString(), expected)
+      return res.end(payload)
+    })
 
-  t.is(statusCode, 200)
-  t.is(body, 2)
-})
+    const url = await runServer(t, (req, res) => hooked(res, 200, data))
+    const { body } = await got(url)
 
-test('send(200, <Buffer>)', async t => {
-  const url = await runServer(t, (req, res) =>
-    send(res, 200, Buffer.from('muscle'))
-  )
-  const { body, statusCode } = await got(url)
-
-  t.is(statusCode, 200)
-  t.is(body, 'muscle')
-})
+    t.is(body, expected)
+  })
+}
 
 test('send(200, <Stream>)', async t => {
   const streamUrl = await runServer(t, (req, res) => {
@@ -261,27 +268,6 @@ test('send() inside onError cannot answer once the body started', async t => {
   await t.throwsAsync(got(url, { retry: 0 }), { code: 'ECONNRESET' })
 })
 
-const BUFFERED = [
-  ['String', 'woot', 'woot'],
-  ['Object', { a: 'b' }, '{"a":"b"}'],
-  ['Buffer', Buffer.from('muscle'), 'muscle']
-]
-
-for (const [name, data, expected] of BUFFERED) {
-  test(`create()(200, <${name}>) hands the body to the hook`, async t => {
-    const hooked = create((res, payload) => {
-      t.true(Buffer.isBuffer(payload))
-      t.is(payload.toString(), expected)
-      return res.end(payload)
-    })
-
-    const url = await runServer(t, (req, res) => hooked(res, 200, data))
-    const { body } = await got(url)
-
-    t.is(body, expected)
-  })
-}
-
 test('create()(200, <Buffer>) hook can refuse the body', async t => {
   const hooked = create((res, payload) =>
     payload.length > 8 ? send(res, 413, 'too large') : res.end(payload)
@@ -333,16 +319,13 @@ test('proxy(<Stream>) keeps the upstream status code', async t => {
 })
 
 test('proxy(<Stream>) forwards the first chunk instead of buffering a detection sample', async t => {
-  const upstream = await runServer(t, (req, res) => {
-    res.writeHead(200, { 'content-type': 'application/octet-stream' })
-    res.write(Buffer.alloc(64, 7))
-  })
+  const upstream = await runServer(t, writeChunk)
 
   const request = await runProxy(t, upstream, ALLOWED)
   const [chunk] = await once(request, 'data')
   request.destroy()
 
-  t.is(chunk.length, 64)
+  t.is(chunk.length, CHUNK.length)
 })
 
 test('proxy(<Stream>) detects content-type when the upstream omits it', async t => {
@@ -359,8 +342,7 @@ test('proxy(<Stream>) destroys the upstream when the client goes away', async t 
 
   const upstream = await runServer(t, (req, res) => {
     upstreamClosed = onClose(res)
-    res.writeHead(200, { 'content-type': 'application/octet-stream' })
-    res.write(Buffer.alloc(64, 7))
+    writeChunk(req, res)
   })
 
   const request = await runProxy(t, upstream, ALLOWED)

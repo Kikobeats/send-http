@@ -17,14 +17,10 @@ const setContentType = (res, type) => {
   if (canSetContentType(res)) res.setHeader('content-type', type)
 }
 
-/** Headers on the wire cannot be set again, and an ended response takes no
- * body: past either point there is no reply left to make. */
 const canAnswer = res => !res.headersSent && !res.writableEnded
 
 /** Registered on the stream rather than through `pipeline`, which by its
- * callback has already destroyed the response. A response nobody answered is
- * closed without the error: an upstream that fails before saying anything is
- * not a failure of the response itself. */
+ * callback has already destroyed the response. */
 const forwardErrors = (stream, res, onError) =>
   stream.once('error', error => {
     onError?.(error, res)
