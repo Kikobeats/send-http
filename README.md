@@ -96,11 +96,13 @@ Piping waits for the upstream response, which is what makes the allowlist worth 
 
 The upstream dies with the client in every window: while streaming, while still waiting for the upstream to answer, and when the client had already gone before `proxy` was ever called.
 
-Additionally, you can `.create` to customize the behvaior before sending a buffered body (streams go through `sendStream`):
+### create
+
+Customizes the write of a buffered body (streams go through `sendStream`). The hook runs after the `Content-Type` and `Content-Length` are set, and receives the body as a `Buffer` whatever it was given:
 
 ```js
 const send = require('send-http').create((res, data) => {
-  if (Buffer.byteLength(data) > 6291456) {
+  if (data.length > 6291456) {
     throw new Error('Payload size is over 6mb')
   }
   return res.end(data)

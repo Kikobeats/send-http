@@ -7,8 +7,7 @@ const noop = () => {}
 
 const isStream = input => typeof input?.pipe === 'function'
 
-const hasContentType = res =>
-  res.headersSent || res.getHeader('content-type') !== undefined
+const hasContentType = res => res.headersSent || res.hasHeader('content-type')
 
 const setContentType = (res, type) => {
   if (!hasContentType(res)) res.setHeader('content-type', type)
@@ -69,6 +68,25 @@ const proxy = (res, upstream, { headers = [], onError } = {}) => {
   return res
 }
 
+/** Declares what the body is and hands it over as bytes: a string measured,
+ * then written, then encoded is three walks of the same payload. */
+const serialize = (res, data) => {
+  if (Buffer.isBuffer(data)) {
+    setContentType(res, 'application/octet-stream')
+    return data
+  }
+
+  const type = typeof data
+  const isJSON = type === 'object' || type === 'number' || type === 'boolean'
+
+  setContentType(
+    res,
+    isJSON ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
+  )
+
+  return Buffer.from(isJSON ? JSON.stringify(data) : data)
+}
+
 const create =
   send =>
     (res, statusCode = 200, data = null, options) => {
@@ -78,23 +96,10 @@ const create =
 
       if (data === null) return res.end()
 
-      if (Buffer.isBuffer(data)) {
-        setContentType(res, 'application/octet-stream')
-        res.setHeader('content-length', data.length)
-        return res.end(data)
-      }
+      const payload = serialize(res, data)
+      res.setHeader('content-length', payload.length)
 
-      const type = typeof data
-      const isJSON = type === 'object' || type === 'number' || type === 'boolean'
-      const str = isJSON ? JSON.stringify(data) : data
-
-      setContentType(
-        res,
-        isJSON ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
-      )
-      res.setHeader('content-length', Buffer.byteLength(str))
-
-      return send(res, str)
+      return send(res, payload)
     }
 
 module.exports = create((res, data) => res.end(data))

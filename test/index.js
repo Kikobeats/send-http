@@ -4,13 +4,12 @@ const { setTimeout: delay } = require('timers/promises')
 const { default: listen } = require('async-listen')
 const { createServer } = require('http')
 const { Readable } = require('stream')
-const { promisify } = require('util')
 const test = require('ava').default
 const { once } = require('events')
 const got = require('got')
 
 const send = require('..')
-const { proxy, sendStream } = send
+const { create, proxy, sendStream } = send
 
 const senders = [
   ['send', send],
@@ -62,9 +61,10 @@ const ongoingStream = () => {
   })
 }
 
+// `asyncDispose` waits for the server to close, but not for keep-alive sockets.
 const closeServer = server => {
   server.closeAllConnections()
-  return promisify(server.close.bind(server))()
+  return server[Symbol.asyncDispose]()
 }
 
 // `events.once` rejects on `error`, and these streams close after failing.
@@ -170,22 +170,22 @@ for (const [name, sender] of senders) {
 
     t.true(stream.destroyed)
   })
+
+  test(`${name}(200, <Stream>) onError can answer before the headers are sent`, async t => {
+    const url = await runServer(t, (req, res) =>
+      sender(res, 200, failingStream(), {
+        onError: (error, res) => {
+          t.is(error.message, 'stream failed')
+          res.statusCode = 504
+          res.end()
+        }
+      })
+    )
+    const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
+
+    t.is(statusCode, 504)
+  })
 }
-
-test('send(200, <Stream>) forwards the options to sendStream', async t => {
-  const url = await runServer(t, (req, res) =>
-    send(res, 200, failingStream(), {
-      onError: (error, res) => {
-        t.is(error.message, 'stream failed')
-        res.statusCode = 504
-        res.end()
-      }
-    })
-  )
-  const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
-
-  t.is(statusCode, 504)
-})
 
 test('sendStream(200, <Stream>) detects content-type from the payload', async t => {
   const url = await runServer(t, (req, res) =>
@@ -225,19 +225,39 @@ test('sendStream(200, <Stream>) returns the response', async t => {
   await got(url)
 })
 
-test('sendStream(200, <Stream>) onError can answer before the headers are sent', async t => {
-  const url = await runServer(t, (req, res) =>
-    sendStream(res, 200, failingStream(), {
-      onError: (error, res) => {
-        t.is(error.message, 'stream failed')
-        res.statusCode = 504
-        res.end()
-      }
-    })
-  )
-  const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
+const BUFFERED = [
+  ['String', 'woot', 'woot'],
+  ['Object', { a: 'b' }, '{"a":"b"}'],
+  ['Buffer', Buffer.from('muscle'), 'muscle']
+]
 
-  t.is(statusCode, 504)
+for (const [name, data, expected] of BUFFERED) {
+  test(`create()(200, <${name}>) hands the body to the hook`, async t => {
+    const hooked = create((res, payload) => {
+      t.true(Buffer.isBuffer(payload))
+      t.is(payload.toString(), expected)
+      return res.end(payload)
+    })
+
+    const url = await runServer(t, (req, res) => hooked(res, 200, data))
+    const { body } = await got(url)
+
+    t.is(body, expected)
+  })
+}
+
+test('create()(200, <Buffer>) hook can refuse the body', async t => {
+  const hooked = create((res, payload) =>
+    payload.length > 8 ? send(res, 413, 'too large') : res.end(payload)
+  )
+
+  const url = await runServer(t, (req, res) =>
+    hooked(res, 200, Buffer.alloc(16))
+  )
+  const { body, statusCode } = await got(url, { throwHttpErrors: false })
+
+  t.is(statusCode, 413)
+  t.is(body, 'too large')
 })
 
 const runProxy = async (t, upstreamUrl, options) => {
