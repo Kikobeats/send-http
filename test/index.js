@@ -1,6 +1,5 @@
 'use strict'
 
-const { setTimeout: delay } = require('timers/promises')
 const { default: listen } = require('async-listen')
 const { createServer } = require('http')
 const { Readable } = require('stream')
@@ -376,20 +375,18 @@ test('proxy(<Stream>) destroys the upstream when the client goes away before it 
 })
 
 test('proxy(<Stream>) destroys the upstream when the response is already closed', async t => {
-  const upstream = await runServer(t, (req, res) =>
-    t.fail(`the upstream was reached: ${req.url}`)
-  )
+  const upstream = ongoingStream()
+  const closed = onClose(upstream)
 
   const url = await runServer(t, (req, res) => {
     res.destroy()
-    res.once('close', () =>
-      proxy(res, got.stream(upstream, { retry: 0 }), ALLOWED)
-    )
+    res.once('close', () => proxy(res, upstream, ALLOWED))
   })
 
   await t.throwsAsync(got(url, { retry: 0 }))
-  await delay(500)
-  t.pass()
+  await closed
+
+  t.true(upstream.destroyed)
 })
 
 test('proxy(<Stream>) onError can answer before the headers are sent', async t => {

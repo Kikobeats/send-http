@@ -71,7 +71,7 @@ http.createServer((req, res) => {
 })
 ```
 
-`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you. Once the headers are out there is nothing left to answer with, so a reply written then is ignored rather than thrown at you, and the client gets the reset.
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you. Once the headers are out there is nothing left to answer with: `send` returns the response untouched rather than throwing `ERR_HTTP_HEADERS_SENT` at you from inside a listener, and the client sees the failure as a reset.
 
 `send` takes the same options as a fourth argument and forwards them when the body is a stream, so `send(res, 200, stream, { onError })` is `sendStream(res, 200, stream, { onError })`.
 

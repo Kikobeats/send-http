@@ -7,10 +7,14 @@ const noop = () => {}
 
 const isStream = input => typeof input?.pipe === 'function'
 
-const hasContentType = res => res.headersSent || res.hasHeader('content-type')
+/** Mirrors the guard `@kikobeats/set-content-type` applies to itself: the two
+ * have to agree on when the type is still open, or the sniffer gets asked for
+ * something it will refuse to do. */
+const canSetContentType = res =>
+  !res.headersSent && !res.hasHeader('content-type')
 
 const setContentType = (res, type) => {
-  if (!hasContentType(res)) res.setHeader('content-type', type)
+  if (canSetContentType(res)) res.setHeader('content-type', type)
 }
 
 /** Headers on the wire cannot be set again, and an ended response takes no
@@ -35,13 +39,12 @@ const pipeStream = (res, statusCode, stream) => {
   }
 
   res.statusCode = statusCode
-  // never `stream` straight into `res`: piping a request stream into a
-  // `ServerResponse` copies its headers over, past the allowlist. With nothing
-  // to detect the hop is our own, not the sniffer's: it nests a second
-  // pipeline, and skipping it is worth ~13% on a 64KB body.
-  hasContentType(res)
-    ? pipeline(stream, new PassThrough(), res, noop)
-    : pipeline(stream, sniffContentType(res), noop)
+  canSetContentType(res)
+    ? pipeline(stream, sniffContentType(res), noop)
+    // the sniffer would hand back this same hop, wrapped in a second pipeline:
+    // ~13% on a 64KB body. Never `stream` straight into `res` though, since
+    // piping a request stream into a `ServerResponse` copies its headers over.
+    : pipeline(stream, new PassThrough(), res, noop)
   return res
 }
 
