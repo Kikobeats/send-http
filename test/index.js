@@ -1,14 +1,16 @@
 'use strict'
 
+const { setTimeout: delay } = require('timers/promises')
 const { default: listen } = require('async-listen')
 const { createServer } = require('http')
 const { Readable } = require('stream')
 const { promisify } = require('util')
 const test = require('ava').default
+const { once } = require('events')
 const got = require('got')
 
 const send = require('..')
-const { sendStream } = send
+const { proxy, sendStream } = send
 
 const senders = [
   ['send', send],
@@ -27,6 +29,14 @@ const failingStream = () =>
       this.destroy(new Error('stream failed'))
     }
   })
+
+// unlike `failingStream`, it does not wait to be read: `proxy` never reads a
+// source that has not answered yet.
+const failingUpstream = () => {
+  const stream = new Readable({ read () {} })
+  process.nextTick(() => stream.destroy(new Error('stream failed')))
+  return stream
+}
 
 const failingMidwayStream = () => {
   let sent = false
@@ -210,4 +220,148 @@ test('sendStream(200, <Stream>) onError can answer before the headers are sent',
   const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
 
   t.is(statusCode, 504)
+})
+
+const onClose = stream => new Promise(resolve => stream.once('close', resolve))
+
+const runProxy = async (t, upstreamUrl, options) => {
+  const url = await runServer(t, (req, res) =>
+    proxy(res, got.stream(upstreamUrl, { retry: 0 }), options)
+  )
+  const request = got.stream(url, { retry: 0 })
+  request.once('error', () => {})
+  return request
+}
+
+const ALLOWED = { headers: ['content-type'] }
+
+test('proxy(<Stream>) copies only the allowed headers', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'x-secret': 'nope' })
+    res.end('woot')
+  })
+
+  const request = await runProxy(t, upstream, ALLOWED)
+  const [response] = await once(request, 'response')
+
+  t.is(response.headers['content-type'], 'text/plain')
+  t.is(response.headers['x-secret'], undefined)
+})
+
+test('proxy(<Stream>) keeps the upstream status code', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(206, { 'content-type': 'text/plain' })
+    res.end('woot')
+  })
+
+  const request = await runProxy(t, upstream, ALLOWED)
+  const [response] = await once(request, 'response')
+
+  t.is(response.statusCode, 206)
+})
+
+test('proxy(<Stream>) forwards the first chunk instead of buffering a detection sample', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'application/octet-stream' })
+    res.write(Buffer.alloc(64, 7))
+  })
+
+  const request = await runProxy(t, upstream, ALLOWED)
+  const [chunk] = await once(request, 'data')
+  request.destroy()
+
+  t.is(chunk.length, 64)
+})
+
+test('proxy(<Stream>) detects content-type when the upstream omits it', async t => {
+  const upstream = await runServer(t, (req, res) => res.end(JPEG))
+
+  const request = await runProxy(t, upstream, ALLOWED)
+  const [response] = await once(request, 'response')
+
+  t.is(response.headers['content-type'], 'image/jpeg')
+})
+
+test('proxy(<Stream>) destroys the upstream when the client goes away', async t => {
+  let upstreamClosed
+
+  const upstream = await runServer(t, (req, res) => {
+    upstreamClosed = onClose(res)
+    res.writeHead(200, { 'content-type': 'application/octet-stream' })
+    res.write(Buffer.alloc(64, 7))
+  })
+
+  const request = await runProxy(t, upstream, ALLOWED)
+  request.once('data', () => request.destroy())
+
+  await upstreamClosed
+  t.pass()
+})
+
+test('proxy(<Stream>) destroys the upstream when the client goes away before it responds', async t => {
+  let upstreamClosed
+  let onRequested
+  const upstreamRequested = new Promise(resolve => {
+    onRequested = resolve
+  })
+
+  const upstream = await runServer(t, (req, res) => {
+    upstreamClosed = onClose(res)
+    onRequested()
+  })
+
+  const request = await runProxy(t, upstream, ALLOWED)
+
+  await upstreamRequested
+  request.destroy()
+
+  await upstreamClosed
+  t.pass()
+})
+
+test('proxy(<Stream>) destroys the upstream when the response is already closed', async t => {
+  const upstream = await runServer(t, (req, res) =>
+    t.fail(`the upstream was reached: ${req.url}`)
+  )
+
+  const url = await runServer(t, (req, res) => {
+    res.destroy()
+    res.once('close', () =>
+      proxy(res, got.stream(upstream, { retry: 0 }), ALLOWED)
+    )
+  })
+
+  await t.throwsAsync(got(url, { retry: 0 }))
+  await delay(500)
+  t.pass()
+})
+
+test('proxy(<Stream>) onError can answer before the headers are sent', async t => {
+  const url = await runServer(t, (req, res) =>
+    proxy(res, failingUpstream(), {
+      onError: (error, res) => {
+        t.is(error.message, 'stream failed')
+        res.statusCode = 504
+        res.end()
+      }
+    })
+  )
+  const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
+
+  t.is(statusCode, 504)
+})
+
+test('sendStream(200, <Stream>) destroys the stream when the response is already closed', async t => {
+  const stream = ongoingStream()
+  const closed = onClose(stream)
+
+  const url = await runServer(t, (req, res) => {
+    res.destroy()
+    res.once('close', () => sendStream(res, 200, stream))
+  })
+
+  await t.throwsAsync(got(url, { retry: 0 }))
+  await closed
+
+  t.true(stream.destroyed)
 })

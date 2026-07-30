@@ -13,7 +13,8 @@ It's like `res.send`, but:
 - It determines `Content-Type` from the data: the type for values, the first bytes for streams.
 - It optionally sets status code as third argument.
 - It tears down both ends when a stream fails or the client disconnects.
-- It's small (~50 LOC).
+- It proxies an HTTP response with `proxy`, keeping the upstream status and the headers you allow.
+- It's small (~80 LOC).
 
 ## Install
 
@@ -53,7 +54,9 @@ http.createServer((req, res) => {
 
 When the body is a stream, the `Content-Type` is detected from its first bytes via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type), so a proxied body keeps the type of whatever produced it. An already set `Content-Type` is respected, and an unrecognized payload leaves it unset.
 
-When a stream fails, the response is destroyed with the error: the failure reaches the client instead of the process. Use `sendStream` to decide what the client gets instead:
+When a stream fails before anything reached the client, the response is closed without the error: an upstream that never answered is not a failure of the response itself. Once bytes are on the wire they cannot be retracted, so the response is destroyed with the failure and the client sees a reset rather than a truncated body that looks complete.
+
+Use `sendStream` to decide what the client gets instead:
 
 ```js
 const { sendStream } = require('send-http')
@@ -61,15 +64,35 @@ const { sendStream } = require('send-http')
 http.createServer((req, res) => {
   sendStream(res, 200, got.stream('https://example.com'), {
     onError: (error, res) => {
-      if (res.headersSent) return res.destroy(error)
-      res.statusCode = 504
+      res.statusCode = error.code === 'ETIMEDOUT' ? 504 : 502
       res.end()
     }
   })
 })
 ```
 
-`onError` runs on the stream, before the response is torn down, so it can still write a reply. Once the headers are on the wire nothing can be written, and destroying is the only way to stop a partial body from looking like a complete one.
+`onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you.
+
+### proxy
+
+Relaying an HTTP response is not the same as sending a stream: the status and the headers belong to the upstream, and they only exist once it answers.
+
+```js
+const { proxy } = require('send-http')
+
+http.createServer((req, res) => {
+  proxy(res, got.stream('https://example.com/video.mp4'), {
+    headers: ['content-type', 'content-length', 'accept-ranges'],
+    onError: (error, res) => send(res, 502, { error: error.message })
+  })
+})
+```
+
+`headers` is an allowlist of lowercase names copied from the upstream response; nothing else crosses. The upstream status code is the one the client gets, so a `206` stays a `206`.
+
+Piping waits for the upstream response, which is what makes the allowlist worth having: a forwarded `Content-Type` means the payload is never sampled, and the first byte reaches the client as soon as the upstream produces it.
+
+The upstream dies with the client in every window: while streaming, while still waiting for the upstream to answer, and when the client had already gone before `proxy` was ever called.
 
 Additionally, you can `.create` to customize the behvaior before sending a buffered body (streams go through `sendStream`):
 
