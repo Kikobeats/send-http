@@ -120,6 +120,18 @@ isStream(got.stream('https://example.com')) // => true
 isStream({}) // => false
 ```
 
+### canAnswer
+
+The guard behind the no-op: `false` once the headers went out or the response ended, which is when writing to it would throw. Use it to skip work whose only purpose was the answer:
+
+```js
+const { canAnswer } = require('send-http')
+
+if (canAnswer(res)) send(res, 500, { error: 'upstream failed' })
+```
+
+`send` already checks it, so an unconditional call is safe too: it returns the response untouched rather than throwing.
+
 ## License
 
 **send-http** © [Kiko Beats](https://kikobeats.com), released under the [MIT](https://github.com/Kikobeats/send-http/blob/master/LICENSE.md) License.<br>

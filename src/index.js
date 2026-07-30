@@ -106,6 +106,7 @@ const create =
     }
 
 module.exports = create((res, data) => res.end(data))
+module.exports.canAnswer = canAnswer
 module.exports.create = create
 module.exports.isStream = isStream
 module.exports.proxy = proxy
