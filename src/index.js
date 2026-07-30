@@ -1,12 +1,18 @@
 'use strict'
 
 const sniffContentType = require('@kikobeats/set-content-type')
-const { pipeline, finished } = require('node:stream')
+const { PassThrough, pipeline } = require('node:stream')
 
-const isStream = input => input != null && typeof input.pipe === 'function'
+const noop = () => {}
 
-const setContentType = (res, type) =>
-  !res.hasHeader('Content-Type') && res.setHeader('Content-Type', type)
+const isStream = input => typeof input?.pipe === 'function'
+
+const hasContentType = res =>
+  res.headersSent || res.getHeader('content-type') !== undefined
+
+const setContentType = (res, type) => {
+  if (!hasContentType(res)) res.setHeader('content-type', type)
+}
 
 /** Closes a response nobody answered, without the error: an upstream that fails
  * before saying anything is not a failure of the response itself. */
@@ -14,16 +20,15 @@ const destroyUnanswered = res => {
   if (!res.headersSent && !res.writableEnded) res.destroy()
 }
 
-/** Runs `onError` while a reply still fits, then closes whatever it left open.
- * Registered on the stream rather than through `pipeline`, which by its callback
- * has already destroyed the response. */
+/** Registered on the stream rather than through `pipeline`, which by its
+ * callback has already destroyed the response. */
 const forwardErrors = (stream, res, onError) =>
   stream.once('error', error => {
     if (onError) onError(error, res)
     destroyUnanswered(res)
   })
 
-const sendStream = (res, statusCode, stream, { onError } = {}) => {
+const pipeStream = (res, statusCode, stream) => {
   // piping into a gone response throws; the stream still has to go somewhere.
   if (res.closed || res.writableEnded) {
     stream.destroy()
@@ -31,24 +36,24 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
   }
 
   res.statusCode = statusCode
-  forwardErrors(stream, res, onError)
-  pipeline(stream, sniffContentType(res), () => {})
+  // never `stream` straight into `res`: piping a request stream into a
+  // `ServerResponse` copies its headers over, past the allowlist.
+  hasContentType(res)
+    ? pipeline(stream, new PassThrough(), res, noop)
+    : pipeline(stream, sniffContentType(res), noop)
   return res
 }
 
-/**
- * Relays an HTTP response: the status and the allowed headers are the
- * upstream's, and the upstream dies with the client.
- *
- * @param {http.ServerResponse} res
- * @param {stream.Duplex} upstream a request stream emitting `response`
- * @param {object} [options]
- * @param {string[]} [options.headers] lowercase names to copy from the upstream
- * @param {Function} [options.onError]
- */
+const sendStream = (res, statusCode, stream, { onError } = {}) => {
+  forwardErrors(stream, res, onError)
+  return pipeStream(res, statusCode, stream)
+}
+
 const proxy = (res, upstream, { headers = [], onError } = {}) => {
-  // `pipeline` only guards from the moment it pipes, which is a response away.
-  finished(res, () => upstream.destroy())
+  // piping only guards from the moment it starts, which is a response away.
+  if (res.closed) upstream.destroy()
+  else res.once('close', () => upstream.destroy())
+
   forwardErrors(upstream, res, onError)
 
   upstream.once('response', upstreamRes => {
@@ -58,7 +63,7 @@ const proxy = (res, upstream, { headers = [], onError } = {}) => {
     }
     // piped once the headers landed: an upstream content-type makes sniffing the
     // payload, and the sample it withholds, unnecessary.
-    sendStream(res, upstreamRes.statusCode, upstream)
+    pipeStream(res, upstreamRes.statusCode, upstream)
   })
 
   return res
@@ -66,8 +71,8 @@ const proxy = (res, upstream, { headers = [], onError } = {}) => {
 
 const create =
   send =>
-    (res, statusCode = 200, data = null) => {
-      if (isStream(data)) return sendStream(res, statusCode, data)
+    (res, statusCode = 200, data = null, options) => {
+      if (isStream(data)) return sendStream(res, statusCode, data, options)
 
       res.statusCode = statusCode
 
@@ -75,21 +80,19 @@ const create =
 
       if (Buffer.isBuffer(data)) {
         setContentType(res, 'application/octet-stream')
-        res.setHeader('Content-Length', data.length)
+        res.setHeader('content-length', data.length)
         return res.end(data)
       }
 
-      let str = data
       const type = typeof data
+      const isJSON = type === 'object' || type === 'number' || type === 'boolean'
+      const str = isJSON ? JSON.stringify(data) : data
 
-      if (type === 'object' || type === 'number' || type === 'boolean') {
-        str = JSON.stringify(data)
-        setContentType(res, 'application/json; charset=utf-8')
-      } else {
-        setContentType(res, 'text/plain; charset=utf-8')
-      }
-
-      res.setHeader('Content-Length', Buffer.byteLength(str))
+      setContentType(
+        res,
+        isJSON ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
+      )
+      res.setHeader('content-length', Buffer.byteLength(str))
 
       return send(res, str)
     }

@@ -67,6 +67,9 @@ const closeServer = server => {
   return promisify(server.close.bind(server))()
 }
 
+// `events.once` rejects on `error`, and these streams close after failing.
+const onClose = stream => new Promise(resolve => stream.once('close', resolve))
+
 const runServer = async (t, handler) => {
   const server = createServer(handler)
   const url = await listen(server)
@@ -149,15 +152,12 @@ for (const [name, sender] of senders) {
   test(`${name}(200, <Stream>) destroys the stream when the client goes away`, async t => {
     t.timeout(5000)
 
-    let streamClosed
-    const closed = new Promise(resolve => {
-      streamClosed = resolve
-    })
+    const { promise: sent, resolve: onSent } = Promise.withResolvers()
 
     const url = await runServer(t, (req, res) => {
       const stream = ongoingStream()
       t.teardown(() => stream.destroy())
-      stream.once('close', () => streamClosed(stream.destroyed))
+      onSent(stream)
       sender(res, 200, stream)
     })
 
@@ -165,9 +165,27 @@ for (const [name, sender] of senders) {
     request.once('data', () => request.destroy())
     request.once('error', () => {})
 
-    t.true(await closed)
+    const stream = await sent
+    await onClose(stream)
+
+    t.true(stream.destroyed)
   })
 }
+
+test('send(200, <Stream>) forwards the options to sendStream', async t => {
+  const url = await runServer(t, (req, res) =>
+    send(res, 200, failingStream(), {
+      onError: (error, res) => {
+        t.is(error.message, 'stream failed')
+        res.statusCode = 504
+        res.end()
+      }
+    })
+  )
+  const { statusCode } = await got(url, { retry: 0, throwHttpErrors: false })
+
+  t.is(statusCode, 504)
+})
 
 test('sendStream(200, <Stream>) detects content-type from the payload', async t => {
   const url = await runServer(t, (req, res) =>
@@ -221,8 +239,6 @@ test('sendStream(200, <Stream>) onError can answer before the headers are sent',
 
   t.is(statusCode, 504)
 })
-
-const onClose = stream => new Promise(resolve => stream.once('close', resolve))
 
 const runProxy = async (t, upstreamUrl, options) => {
   const url = await runServer(t, (req, res) =>
@@ -300,10 +316,8 @@ test('proxy(<Stream>) destroys the upstream when the client goes away', async t 
 
 test('proxy(<Stream>) destroys the upstream when the client goes away before it responds', async t => {
   let upstreamClosed
-  let onRequested
-  const upstreamRequested = new Promise(resolve => {
-    onRequested = resolve
-  })
+  const { promise: upstreamRequested, resolve: onRequested } =
+    Promise.withResolvers()
 
   const upstream = await runServer(t, (req, res) => {
     upstreamClosed = onClose(res)

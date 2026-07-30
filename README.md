@@ -73,6 +73,8 @@ http.createServer((req, res) => {
 
 `onError` runs on the stream, before the response is torn down, so it can still write a reply. Write one and the response is left alone; write nothing and it is closed for you.
 
+`send` takes the same options as a fourth argument and forwards them when the body is a stream, so `send(res, 200, stream, { onError })` is `sendStream(res, 200, stream, { onError })`.
+
 ### proxy
 
 Relaying an HTTP response is not the same as sending a stream: the status and the headers belong to the upstream, and they only exist once it answers.
@@ -103,6 +105,17 @@ const send = require('send-http').create((res, data) => {
   }
   return res.end(data)
 })
+```
+
+### isStream
+
+The predicate behind the dispatch, exported for reusing the same rule:
+
+```js
+const { isStream } = require('send-http')
+
+isStream(got.stream('https://example.com')) // => true
+isStream({}) // => false
 ```
 
 ## License
