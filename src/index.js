@@ -35,12 +35,14 @@ const pipeStream = (res, statusCode, stream) => {
   }
 
   res.statusCode = statusCode
-  canSetContentType(res)
-    ? pipeline(stream, sniffContentType(res), noop)
+  if (canSetContentType(res)) {
+    pipeline(stream, sniffContentType(res), noop)
+  } else {
     // the sniffer would hand back this same hop, wrapped in a second pipeline:
     // ~13% on a 64KB body. Never `stream` straight into `res` though, since
     // piping a request stream into a `ServerResponse` copies its headers over.
-    : pipeline(stream, new PassThrough(), res, noop)
+    pipeline(stream, new PassThrough(), res, noop)
+  }
   return res
 }
 
