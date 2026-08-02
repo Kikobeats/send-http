@@ -51,21 +51,35 @@ const sendStream = (res, statusCode, stream, { onError } = {}) => {
   return pipeStream(res, statusCode, stream)
 }
 
-/** What a relayed response cannot be read without: the type and the length that
- * describe the body, the filename it arrives under, and the range support that
- * makes it resumable. Everything else is a fact about the upstream, not the
- * payload, and stops here. */
+/** Only what describes the body crosses; everything else is a fact about the
+ * upstream, not the payload, and stops here. */
 const STREAM_ALLOWED_HEADERS = [
   'accept-ranges',
   'content-disposition',
+  'content-encoding',
   'content-length',
+  'content-range',
   'content-type'
 ]
+
+/** A range is over the representation the encoding names, so decoding voids it
+ * with the length it was counted in. */
+const INVALIDATED_BY_DECODING = [
+  'content-encoding',
+  'content-length',
+  'content-range'
+]
+
+/** `http.get` hands a response; got-style streams emit one later. */
+const onceResponse = (upstream, onResponse) =>
+  typeof upstream.statusCode === 'number' && upstream.headers != null
+    ? onResponse(upstream)
+    : upstream.once('response', onResponse)
 
 const proxy = (
   res,
   upstream,
-  { headers = STREAM_ALLOWED_HEADERS, onError } = {}
+  { headers = STREAM_ALLOWED_HEADERS, decoded, onError } = {}
 ) => {
   // piping only guards from the moment it starts, which is a response away.
   if (res.closed) upstream.destroy()
@@ -73,10 +87,20 @@ const proxy = (
 
   forwardErrors(upstream, res, onError)
 
-  upstream.once('response', upstreamRes => {
+  onceResponse(upstream, upstreamRes => {
+    if (!canAnswer(res)) return upstream.destroy()
+
+    // headers that arrived on the body being piped describe it; headers off a
+    // separate object describe the hop before whatever that object did, and got
+    // decodes there by default.
+    const isDecoded = decoded ?? upstreamRes !== upstream
+    const dropEncoded =
+      isDecoded && upstreamRes.headers['content-encoding'] !== undefined
+
     for (const header of headers) {
+      if (dropEncoded && INVALIDATED_BY_DECODING.includes(header)) continue
       const value = upstreamRes.headers[header]
-      if (value) res.setHeader(header, value)
+      if (value !== undefined) res.setHeader(header, value)
     }
     // piped once the headers landed: an upstream content-type makes sniffing the
     // payload, and the sample it withholds, unnecessary.
