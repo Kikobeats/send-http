@@ -1,8 +1,9 @@
 'use strict'
 
 const { default: listen } = require('async-listen')
-const { createServer } = require('http')
+const { createServer, get: httpGet } = require('http')
 const { Readable } = require('stream')
+const { gzipSync } = require('zlib')
 const test = require('ava').default
 const { once } = require('events')
 const got = require('got')
@@ -83,6 +84,27 @@ const openRequest = url => {
   request.once('error', () => {})
   return request
 }
+
+// the upstream outlives the test that closed its server.
+const openUpstream = (url, onResponse) =>
+  httpGet(url, onResponse).once('error', () => {})
+
+const answeredStream = () =>
+  Object.assign(Readable.from(['woot']), { statusCode: 200, headers: {} })
+
+const GZIP_PAYLOAD = Buffer.alloc(1200, 65)
+const GZIP_BODY = gzipSync(GZIP_PAYLOAD)
+
+const runGzipServer = (t, head = {}) =>
+  runServer(t, (req, res) => {
+    res.writeHead(head.statusCode ?? 200, {
+      'content-type': 'text/plain',
+      'content-encoding': 'gzip',
+      'content-length': GZIP_BODY.length,
+      ...head.headers
+    })
+    res.end(GZIP_BODY)
+  })
 
 const runServer = async (t, handler) => {
   const server = createServer(handler)
@@ -311,28 +333,37 @@ test('proxy(<Stream>) copies only the allowed headers', async t => {
 })
 
 test('proxy(<Stream>) copies the headers that describe the body by default', async t => {
+  const described = {
+    'accept-ranges': 'bytes',
+    'content-disposition': 'attachment; filename="woot.txt"',
+    'content-length': '4',
+    'content-type': 'text/plain'
+  }
+
   const upstream = await runServer(t, (req, res) => {
-    res.writeHead(200, {
-      'accept-ranges': 'bytes',
-      'content-disposition': 'attachment; filename="woot.txt"',
-      'content-length': 4,
-      'content-type': 'text/plain',
-      'x-secret': 'nope'
-    })
+    res.writeHead(200, { ...described, 'x-secret': 'nope' })
     res.end('woot')
   })
 
   const request = await runProxy(t, upstream)
   const [response] = await once(request, 'response')
 
-  for (const header of send.STREAM_ALLOWED_HEADERS) {
-    t.not(
-      response.headers[header],
-      undefined,
-      `"${header}" should have been copied`
-    )
+  for (const [header, value] of Object.entries(described)) {
+    t.is(response.headers[header], value, `"${header}" should have been copied`)
   }
   t.is(response.headers['x-secret'], undefined)
+})
+
+test('proxy(<Stream>) copies a zero content-length', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'content-length': 0 })
+    res.end()
+  })
+
+  const request = await runProxy(t, upstream)
+  const [response] = await once(request, 'response')
+
+  t.is(response.headers['content-length'], '0')
 })
 
 test('proxy(<Stream>) copies nothing when the allowlist is empty', async t => {
@@ -362,6 +393,115 @@ test('proxy(<Stream>) keeps the upstream status code', async t => {
   const [response] = await once(request, 'response')
 
   t.is(response.statusCode, 206)
+})
+
+test('proxy(<Stream>) copies content-range with a 206 by default', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(206, {
+      'accept-ranges': 'bytes',
+      'content-length': 4,
+      'content-range': 'bytes 0-3/10',
+      'content-type': 'text/plain'
+    })
+    res.end('woot')
+  })
+
+  const request = await runProxy(t, upstream)
+  const [response] = await once(request, 'response')
+
+  t.is(response.statusCode, 206)
+  t.is(response.headers['content-range'], 'bytes 0-3/10')
+  t.is(response.headers['accept-ranges'], 'bytes')
+})
+
+test('proxy(<IncomingMessage>) pipes a response that already answered', async t => {
+  const upstream = await runServer(t, (req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain', 'content-length': 4 })
+    res.end('woot')
+  })
+
+  const url = await runServer(t, (req, res) => {
+    openUpstream(upstream, upstreamRes => proxy(res, upstreamRes))
+  })
+  const { body, headers, statusCode } = await got(url)
+
+  t.is(statusCode, 200)
+  t.is(body, 'woot')
+  t.is(headers['content-type'], 'text/plain')
+})
+
+const RELAYING = [
+  ['<IncomingMessage>', (res, url) => openUpstream(url, up => proxy(res, up))],
+  [
+    '<Stream>, { decoded: false }',
+    (res, url) =>
+      proxy(res, got.stream(url, { decompress: false, retry: 0 }), {
+        decoded: false
+      })
+  ]
+]
+
+for (const [shape, relay] of RELAYING) {
+  test(`proxy(${shape}) relays the encoding with the bytes`, async t => {
+    const upstream = await runGzipServer(t)
+
+    const url = await runServer(t, (req, res) => relay(res, upstream))
+    const { body, headers } = await got(url)
+
+    t.is(headers['content-encoding'], 'gzip')
+    t.is(headers['content-length'], String(GZIP_BODY.length))
+    t.is(body, GZIP_PAYLOAD.toString())
+  })
+}
+
+test('proxy(<IncomingMessage>) destroys the upstream when the response already answered', async t => {
+  const upstream = answeredStream()
+
+  const url = await runServer(t, (req, res) => {
+    res.writeHead(204)
+    res.end()
+    proxy(res, upstream)
+  })
+  const { body, statusCode } = await got(url)
+
+  t.is(statusCode, 204)
+  t.is(body, '')
+  t.true(upstream.destroyed)
+})
+
+test('proxy(<Stream>) drops the encoding an upstream decoded away', async t => {
+  const upstream = await runGzipServer(t)
+
+  const request = await runProxy(t, upstream)
+  const [response] = await once(request, 'response')
+  const chunks = []
+  for await (const chunk of request) chunks.push(chunk)
+
+  t.is(response.headers['content-encoding'], undefined)
+  t.is(response.headers['content-length'], undefined)
+  t.is(Buffer.concat(chunks).toString(), GZIP_PAYLOAD.toString())
+})
+
+test('proxy(<Stream>) drops a content-range the decoding voided', async t => {
+  const upstream = await runGzipServer(t, {
+    statusCode: 206,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-range': `bytes 0-${GZIP_BODY.length - 1}/${GZIP_BODY.length}`
+    }
+  })
+
+  const request = await runProxy(t, upstream)
+  const [response] = await once(request, 'response')
+  const chunks = []
+  for await (const chunk of request) chunks.push(chunk)
+
+  // the range counted the compressed representation, so it names bytes the
+  // client never sees once got hands over the decoded ones.
+  t.is(response.statusCode, 206)
+  t.is(response.headers['content-range'], undefined)
+  t.is(response.headers['accept-ranges'], 'bytes')
+  t.is(Buffer.concat(chunks).toString(), GZIP_PAYLOAD.toString())
 })
 
 test('proxy(<Stream>) forwards the first chunk instead of buffering a detection sample', async t => {
