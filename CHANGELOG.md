@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### 3.2.2 (2026-08-02)
+
+
+### Bug Fixes
+
+* relay answered streams and the headers that describe the body ([#22](https://github.com/Kikobeats/send-http/issues/22)) ([8ed25d5](https://github.com/Kikobeats/send-http/commit/8ed25d57ab68fbaf3a98d5c37aa1952c28abdd06))
+
 ### 3.2.1 (2026-07-30)
 
 ## 3.2.0 (2026-07-30)
