@@ -2,7 +2,7 @@
   "name": "send-http",
   "description": "Send any value on an HTTP ServerResponse with automatic Content-Type detection — like res.send for Node.js.",
   "homepage": "https://github.com/Kikobeats/send-http",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "main": "src/index.js",
   "author": {
     "email": "josefrancisco.verdu@gmail.com",
