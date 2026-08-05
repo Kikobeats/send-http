@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### 3.2.4 (2026-08-05)
+
+
+### Bug Fixes
+
+* omit content-length when proxying streams ([#24](https://github.com/Kikobeats/send-http/issues/24)) ([50a62a4](https://github.com/Kikobeats/send-http/commit/50a62a400c55bd6eb48eaddf14ece01197a86153))
+
 ### 3.2.3 (2026-08-03)
 
 ### 3.2.2 (2026-08-02)
