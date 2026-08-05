@@ -57,21 +57,13 @@ const STREAM_ALLOWED_HEADERS = [
   'accept-ranges',
   'content-disposition',
   'content-encoding',
-  'content-length',
   'content-range',
   'content-type'
 ]
 
 /** A range is over the representation the encoding names, so decoding voids it
  * with the length it was counted in. */
-const INVALIDATED_BY_DECODING = [
-  'content-encoding',
-  'content-length',
-  'content-range'
-]
-
-/** Streaming cannot verify upstream content-length (often wrong); chunked is safer. */
-const INVALIDATED_BY_STREAMING = ['content-length']
+const INVALIDATED_BY_DECODING = ['content-encoding', 'content-range']
 
 /** `http.get` hands a response; got-style streams emit one later. */
 const onceResponse = (upstream, onResponse) =>
@@ -101,7 +93,6 @@ const proxy = (
       isDecoded && upstreamRes.headers['content-encoding'] !== undefined
 
     for (const header of headers) {
-      if (INVALIDATED_BY_STREAMING.includes(header)) continue
       if (dropEncoded && INVALIDATED_BY_DECODING.includes(header)) continue
       const value = upstreamRes.headers[header]
       if (value !== undefined) res.setHeader(header, value)

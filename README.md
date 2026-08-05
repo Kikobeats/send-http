@@ -89,14 +89,16 @@ http.createServer((req, res) => {
 })
 ```
 
-`headers` is an allowlist of lowercase names that may cross from the upstream response; nothing else does. It defaults to `STREAM_ALLOWED_HEADERS`, the six that describe the body rather than the upstream serving it:
+`headers` is an allowlist of lowercase names that may cross from the upstream response; nothing else does. It defaults to `STREAM_ALLOWED_HEADERS`, the five that describe the body rather than the upstream serving it:
 
 ```js
 const { STREAM_ALLOWED_HEADERS } = require('send-http')
-// => ['accept-ranges', 'content-disposition', 'content-encoding', 'content-length', 'content-range', 'content-type']
+// => ['accept-ranges', 'content-disposition', 'content-encoding', 'content-range', 'content-type']
 
 proxy(res, upstream, { headers: [...STREAM_ALLOWED_HEADERS, 'etag'] })
 ```
+
+`content-length` is omitted: upstreams often declare a wrong length while still sending the full body, and streaming cannot verify the value anyway — the proxied response uses chunked transfer instead.
 
 The upstream status code is the one the client gets, so a `206` stays a `206`, and `content-range` crosses with it so range clients can resume.
 
@@ -107,7 +109,7 @@ proxy(res, got.stream(url)) // answers later, on 'response'
 http.get(url, upstream => proxy(res, upstream)) // already answered
 ```
 
-Nothing here compresses or decompresses, so what differs is whether the upstream did. A response that already answered is the body being piped, and its `content-encoding` and `content-length` describe that body, so both cross. A stream that answers with a response object of its own is describing the hop before whatever it then did to the bytes, and `got.stream` decompresses there by default: the length would truncate the decoded body and the encoding would mislabel it, so neither crosses.
+Nothing here compresses or decompresses, so what differs is whether the upstream did. A stream that answers with a response object of its own is describing the hop before whatever it then did to the bytes, and `got.stream` decompresses there by default: the encoding would mislabel the decoded body, so it does not cross.
 
 Piping waits for the upstream response, which is what makes the allowlist worth having: a forwarded `Content-Type` means the payload is never sampled, and the first byte reaches the client as soon as the upstream produces it.
 
