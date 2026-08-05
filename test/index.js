@@ -336,12 +336,15 @@ test('proxy(<Stream>) copies the headers that describe the body by default', asy
   const described = {
     'accept-ranges': 'bytes',
     'content-disposition': 'attachment; filename="woot.txt"',
-    'content-length': '4',
     'content-type': 'text/plain'
   }
 
   const upstream = await runServer(t, (req, res) => {
-    res.writeHead(200, { ...described, 'x-secret': 'nope' })
+    res.writeHead(200, {
+      ...described,
+      'content-length': '4',
+      'x-secret': 'nope'
+    })
     res.end('woot')
   })
 
@@ -351,19 +354,8 @@ test('proxy(<Stream>) copies the headers that describe the body by default', asy
   for (const [header, value] of Object.entries(described)) {
     t.is(response.headers[header], value, `"${header}" should have been copied`)
   }
+  t.is(response.headers['content-length'], undefined)
   t.is(response.headers['x-secret'], undefined)
-})
-
-test('proxy(<Stream>) copies a zero content-length', async t => {
-  const upstream = await runServer(t, (req, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain', 'content-length': 0 })
-    res.end()
-  })
-
-  const request = await runProxy(t, upstream)
-  const [response] = await once(request, 'response')
-
-  t.is(response.headers['content-length'], '0')
 })
 
 test('proxy(<Stream>) copies nothing when the allowlist is empty', async t => {
@@ -449,7 +441,7 @@ for (const [shape, relay] of RELAYING) {
     const { body, headers } = await got(url)
 
     t.is(headers['content-encoding'], 'gzip')
-    t.is(headers['content-length'], String(GZIP_BODY.length))
+    t.is(headers['content-length'], undefined)
     t.is(body, GZIP_PAYLOAD.toString())
   })
 }
@@ -502,6 +494,23 @@ test('proxy(<Stream>) drops a content-range the decoding voided', async t => {
   t.is(response.headers['content-range'], undefined)
   t.is(response.headers['accept-ranges'], 'bytes')
   t.is(Buffer.concat(chunks).toString(), GZIP_PAYLOAD.toString())
+})
+
+test('proxy(<Stream>) streams the full body when upstream content-length is wrong', async t => {
+  const body = Buffer.from('this body is longer than the declared length')
+  const upstream = Object.assign(Readable.from([body]), {
+    statusCode: 200,
+    headers: {
+      'content-type': 'image/svg+xml',
+      'content-length': '10'
+    }
+  })
+
+  const url = await runServer(t, (req, res) => proxy(res, upstream))
+  const { body: received, headers } = await got(url, { responseType: 'buffer' })
+
+  t.is(received.compare(body), 0)
+  t.is(headers['content-length'], undefined)
 })
 
 test('proxy(<Stream>) forwards the first chunk instead of buffering a detection sample', async t => {

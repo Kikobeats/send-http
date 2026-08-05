@@ -70,6 +70,9 @@ const INVALIDATED_BY_DECODING = [
   'content-range'
 ]
 
+/** Streaming cannot verify upstream content-length (often wrong); chunked is safer. */
+const INVALIDATED_BY_STREAMING = ['content-length']
+
 /** `http.get` hands a response; got-style streams emit one later. */
 const onceResponse = (upstream, onResponse) =>
   typeof upstream.statusCode === 'number' && upstream.headers != null
@@ -98,6 +101,7 @@ const proxy = (
       isDecoded && upstreamRes.headers['content-encoding'] !== undefined
 
     for (const header of headers) {
+      if (INVALIDATED_BY_STREAMING.includes(header)) continue
       if (dropEncoded && INVALIDATED_BY_DECODING.includes(header)) continue
       const value = upstreamRes.headers[header]
       if (value !== undefined) res.setHeader(header, value)
