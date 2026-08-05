@@ -52,7 +52,7 @@ http.createServer((req, res) => {
 })
 ```
 
-When the body is a stream, the `Content-Type` is detected from its first bytes via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type), so a proxied body keeps the type of whatever produced it. An already set `Content-Type` is respected, and an unrecognized payload leaves it unset.
+When the body is a stream, the `Content-Type` is detected from its first bytes via [@kikobeats/set-content-type](https://github.com/Kikobeats/set-content-type). An already set `Content-Type` is respected, and an unrecognized payload leaves it unset. `proxy` is different: when upstream sends `Content-Type` and it crosses the allowlist, that value is forwarded and the body is not sampled.
 
 When a stream fails before anything reached the client, the response is closed without the error: an upstream that never answered is not a failure of the response itself. Once bytes are on the wire they cannot be retracted, so the response is destroyed with the failure and the client sees a reset rather than a truncated body that looks complete.
 
@@ -77,7 +77,7 @@ http.createServer((req, res) => {
 
 ### proxy
 
-Relaying an HTTP response is not the same as sending a stream: the status and the headers belong to the upstream, and they only exist once it answers.
+Relaying an HTTP response is not the same as sending a stream: status and body-descriptor headers come from the upstream once it answers.
 
 ```js
 const { proxy } = require('send-http')
@@ -89,29 +89,30 @@ http.createServer((req, res) => {
 })
 ```
 
-`headers` is an allowlist of lowercase names that may cross from the upstream response; nothing else does. It defaults to `STREAM_ALLOWED_HEADERS`, the six that describe the body rather than the upstream serving it:
+`onError` follows the same rules as `sendStream` above.
+
+`headers` is an allowlist of lowercase names that may cross; nothing else does. It defaults to `STREAM_ALLOWED_HEADERS`:
 
 ```js
 const { STREAM_ALLOWED_HEADERS } = require('send-http')
-// => ['accept-ranges', 'content-disposition', 'content-encoding', 'content-length', 'content-range', 'content-type']
 
 proxy(res, upstream, { headers: [...STREAM_ALLOWED_HEADERS, 'etag'] })
 ```
 
-The upstream status code is the one the client gets, so a `206` stays a `206`, and `content-range` crosses with it so range clients can resume.
+`content-length` is not in the default list: upstreams often declare a wrong length while still sending the full body, so the proxied response uses chunked transfer instead.
 
-`proxy` takes either shape of upstream, and neither needs telling which it is:
+`proxy` accepts either a stream that emits `response` later, or an `IncomingMessage` that already answered:
 
 ```js
-proxy(res, got.stream(url)) // answers later, on 'response'
-http.get(url, upstream => proxy(res, upstream)) // already answered
+proxy(res, got.stream(url))
+http.get(url, upstream => proxy(res, upstream))
 ```
 
-Nothing here compresses or decompresses, so what differs is whether the upstream did. A response that already answered is the body being piped, and its `content-encoding` and `content-length` describe that body, so both cross. A stream that answers with a response object of its own is describing the hop before whatever it then did to the bytes, and `got.stream` decompresses there by default: the length would truncate the decoded body and the encoding would mislabel it, so neither crosses.
+`got.stream` decompresses by default. When the body was decoded on the way in, `content-encoding` and `content-range` from that hop are dropped so they do not mislabel the bytes being piped. Pass `{ decoded: false }` to relay the compressed representation instead (same as piping an `IncomingMessage`).
 
-Piping waits for the upstream response, which is what makes the allowlist worth having: a forwarded `Content-Type` means the payload is never sampled, and the first byte reaches the client as soon as the upstream produces it.
+When `content-type` crosses, the first byte reaches the client as soon as the upstream produces it. If it does not cross, `Content-Type` is sniffed from the first bytes like `sendStream`.
 
-The upstream dies with the client in every window: while streaming, while still waiting for the upstream to answer, and when the client had already gone before `proxy` was ever called.
+Teardown matches streams (see above): the upstream is destroyed when the client leaves, including before the upstream has answered.
 
 ### create
 

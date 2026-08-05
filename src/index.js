@@ -57,18 +57,13 @@ const STREAM_ALLOWED_HEADERS = [
   'accept-ranges',
   'content-disposition',
   'content-encoding',
-  'content-length',
   'content-range',
   'content-type'
 ]
 
 /** A range is over the representation the encoding names, so decoding voids it
  * with the length it was counted in. */
-const INVALIDATED_BY_DECODING = [
-  'content-encoding',
-  'content-length',
-  'content-range'
-]
+const INVALIDATED_BY_DECODING = ['content-encoding', 'content-range']
 
 /** `http.get` hands a response; got-style streams emit one later. */
 const onceResponse = (upstream, onResponse) =>
