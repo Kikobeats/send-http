@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### 3.2.5 (2026-08-09)
+
+
+### Bug Fixes
+
+* drop allowlisted content-length after decoding ([#25](https://github.com/Kikobeats/send-http/issues/25)) ([03f4bf0](https://github.com/Kikobeats/send-http/commit/03f4bf0a82d953d9cfabf4c28b24b2adb2622ebc)), closes [#24](https://github.com/Kikobeats/send-http/issues/24)
+
 ### 3.2.4 (2026-08-05)
 
 
