@@ -61,14 +61,15 @@ const STREAM_ALLOWED_HEADERS = [
   'content-type'
 ]
 
-/** A range is over the representation the encoding names, so decoding voids it
- * with the length it was counted in. Keep content-length here even though it is
- * not in the default allowlist: a custom headers list that re-adds it must not
- * forward the compressed size onto decoded bytes. */
+/** Decoding hands over a different representation, so what described or
+ * identified the old one is void: the encoding it named, the length and range
+ * counted over it, and the entity-tag that stood for it. Not limited to the
+ * default allowlist, since a custom one can name any of them. */
 const INVALIDATED_BY_DECODING = [
   'content-encoding',
   'content-length',
-  'content-range'
+  'content-range',
+  'etag'
 ]
 
 /** `http.get` hands a response; got-style streams emit one later. */

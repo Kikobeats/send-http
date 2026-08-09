@@ -511,6 +511,37 @@ test('proxy(<Stream>) drops allowlisted content-length when decoding voids it', 
   t.is(body.compare(GZIP_PAYLOAD), 0)
 })
 
+test('proxy(<Stream>) drops an allowlisted etag when decoding voids it', async t => {
+  const upstream = await runGzipServer(t, { headers: { etag: '"gzipped"' } })
+
+  const url = await runServer(t, (req, res) =>
+    proxy(res, got.stream(upstream, { retry: 0 }), {
+      headers: [...send.STREAM_ALLOWED_HEADERS, 'etag']
+    })
+  )
+  const { body, headers } = await got(url, { responseType: 'buffer' })
+
+  // the tag names the compressed representation; the client is handed another.
+  t.is(headers.etag, undefined)
+  t.is(body.compare(GZIP_PAYLOAD), 0)
+})
+
+test('proxy(<Stream>, { decoded: false }) relays an allowlisted etag', async t => {
+  const upstream = await runGzipServer(t, { headers: { etag: '"gzipped"' } })
+
+  const url = await runServer(t, (req, res) =>
+    proxy(res, got.stream(upstream, { decompress: false, retry: 0 }), {
+      decoded: false,
+      headers: [...send.STREAM_ALLOWED_HEADERS, 'etag']
+    })
+  )
+  const { body, headers } = await got(url)
+
+  t.is(headers.etag, '"gzipped"')
+  t.is(headers['content-encoding'], 'gzip')
+  t.is(body, GZIP_PAYLOAD.toString())
+})
+
 test('proxy(<Stream>) streams the full body when upstream content-length is wrong', async t => {
   const body = Buffer.from('this body is longer than the declared length')
   const upstream = Object.assign(Readable.from([body]), {
