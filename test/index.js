@@ -496,6 +496,21 @@ test('proxy(<Stream>) drops a content-range the decoding voided', async t => {
   t.is(Buffer.concat(chunks).toString(), GZIP_PAYLOAD.toString())
 })
 
+test('proxy(<Stream>) drops allowlisted content-length when decoding voids it', async t => {
+  const upstream = await runGzipServer(t)
+
+  const url = await runServer(t, (req, res) =>
+    proxy(res, got.stream(upstream, { retry: 0 }), {
+      headers: [...send.STREAM_ALLOWED_HEADERS, 'content-length']
+    })
+  )
+  const { body, headers } = await got(url, { responseType: 'buffer' })
+
+  t.is(headers['content-encoding'], undefined)
+  t.is(headers['content-length'], undefined)
+  t.is(body.compare(GZIP_PAYLOAD), 0)
+})
+
 test('proxy(<Stream>) streams the full body when upstream content-length is wrong', async t => {
   const body = Buffer.from('this body is longer than the declared length')
   const upstream = Object.assign(Readable.from([body]), {

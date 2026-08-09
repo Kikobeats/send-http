@@ -62,8 +62,14 @@ const STREAM_ALLOWED_HEADERS = [
 ]
 
 /** A range is over the representation the encoding names, so decoding voids it
- * with the length it was counted in. */
-const INVALIDATED_BY_DECODING = ['content-encoding', 'content-range']
+ * with the length it was counted in. Keep content-length here even though it is
+ * not in the default allowlist: a custom headers list that re-adds it must not
+ * forward the compressed size onto decoded bytes. */
+const INVALIDATED_BY_DECODING = [
+  'content-encoding',
+  'content-length',
+  'content-range'
+]
 
 /** `http.get` hands a response; got-style streams emit one later. */
 const onceResponse = (upstream, onResponse) =>

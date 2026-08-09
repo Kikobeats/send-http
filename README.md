@@ -108,7 +108,7 @@ proxy(res, got.stream(url))
 http.get(url, upstream => proxy(res, upstream))
 ```
 
-`got.stream` decompresses by default. When the body was decoded on the way in, `content-encoding` and `content-range` from that hop are dropped so they do not mislabel the bytes being piped. Pass `{ decoded: false }` to relay the compressed representation instead (same as piping an `IncomingMessage`).
+`got.stream` decompresses by default. When the body was decoded on the way in, `content-encoding`, `content-length`, and `content-range` from that hop are dropped so they do not mislabel the bytes being piped — including when a custom `headers` allowlist re-adds `content-length`. Pass `{ decoded: false }` to relay the compressed representation instead (same as piping an `IncomingMessage`).
 
 When `content-type` crosses, the first byte reaches the client as soon as the upstream produces it. If it does not cross, `Content-Type` is sniffed from the first bytes like `sendStream`.
 
