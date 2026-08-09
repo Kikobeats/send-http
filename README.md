@@ -99,7 +99,7 @@ const { STREAM_ALLOWED_HEADERS } = require('send-http')
 proxy(res, upstream, { headers: [...STREAM_ALLOWED_HEADERS, 'etag'] })
 ```
 
-`content-length` is not in the default list: upstreams often declare a wrong length while still sending the full body, so the proxied response uses chunked transfer instead.
+`content-length` is not in the default list: upstreams often declare a wrong length while still sending the full body, so the proxied response uses chunked transfer instead. Re-adding it takes that back, and a length the upstream got wrong truncates the response.
 
 `proxy` accepts either a stream that emits `response` later, or an `IncomingMessage` that already answered:
 
@@ -108,7 +108,7 @@ proxy(res, got.stream(url))
 http.get(url, upstream => proxy(res, upstream))
 ```
 
-`got.stream` decompresses by default. When the body was decoded on the way in, `content-encoding` and `content-range` from that hop are dropped so they do not mislabel the bytes being piped. Pass `{ decoded: false }` to relay the compressed representation instead (same as piping an `IncomingMessage`).
+`got.stream` decompresses by default. Decoding hands over a different representation of the body, so `content-encoding`, `content-length`, `content-range` and `etag` from that hop are dropped rather than mislabel the bytes being piped. That holds however they got on the list, the default one or a custom one. Pass `{ decoded: false }` to relay the compressed representation instead (same as piping an `IncomingMessage`), and all four cross with the bytes they describe.
 
 When `content-type` crosses, the first byte reaches the client as soon as the upstream produces it. If it does not cross, `Content-Type` is sniffed from the first bytes like `sendStream`.
 
