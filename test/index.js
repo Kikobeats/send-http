@@ -2,7 +2,7 @@
 
 const { default: listen } = require('async-listen')
 const { createServer, get: httpGet } = require('http')
-const { Readable } = require('stream')
+const { PassThrough, Readable } = require('stream')
 const { gzipSync } = require('zlib')
 const test = require('ava').default
 const { once } = require('events')
@@ -523,6 +523,42 @@ test('proxy(<Stream>) drops an allowlisted etag when decoding voids it', async t
 
   // the tag names the compressed representation; the client is handed another.
   t.is(headers.etag, undefined)
+  t.is(body.compare(GZIP_PAYLOAD), 0)
+})
+
+// got@14+ strips content-encoding (and content-length) after decompressing but
+// leaves etag / content-range on the PassThrough it emits as `response`.
+// Gating invalidation on encoding still being present would forward a
+// compressed content-range from the default allowlist onto the decoded body.
+test('proxy(<Stream>) drops voided headers after encoding was stripped', async t => {
+  // `proxy` pipes the request stream (got's shape), not the `response` object.
+  const upstream = new Readable({ read () {} })
+  const upstreamRes = Object.assign(new PassThrough(), {
+    statusCode: 206,
+    headers: {
+      'accept-ranges': 'bytes',
+      'content-type': 'text/plain',
+      'content-range': `bytes 0-${GZIP_BODY.length - 1}/${GZIP_BODY.length}`,
+      etag: '"gzipped"'
+    }
+  })
+
+  const url = await runServer(t, (req, res) => {
+    proxy(res, upstream, {
+      headers: [...send.STREAM_ALLOWED_HEADERS, 'etag']
+    })
+    process.nextTick(() => {
+      upstream.emit('response', upstreamRes)
+      upstream.push(GZIP_PAYLOAD)
+      upstream.push(null)
+    })
+  })
+  const { body, headers, statusCode } = await got(url, { responseType: 'buffer' })
+
+  t.is(statusCode, 206)
+  t.is(headers['content-range'], undefined)
+  t.is(headers.etag, undefined)
+  t.is(headers['accept-ranges'], 'bytes')
   t.is(body.compare(GZIP_PAYLOAD), 0)
 })
 

@@ -1,6 +1,7 @@
 'use strict'
 
 const sniffContentType = require('@kikobeats/set-content-type')
+const { IncomingMessage } = require('node:http')
 const { PassThrough, pipeline } = require('node:stream')
 
 const noop = () => {}
@@ -93,14 +94,18 @@ const proxy = (
     if (!canAnswer(res)) return upstream.destroy()
 
     // headers that arrived on the body being piped describe it; headers off a
-    // separate object describe the hop before whatever that object did, and got
-    // decodes there by default.
-    const isDecoded = decoded ?? upstreamRes !== upstream
-    const dropEncoded =
-      isDecoded && upstreamRes.headers['content-encoding'] !== undefined
+    // separate object describe the hop before whatever that object did.
+    // got emits IncomingMessage when the bytes are still the wire
+    // representation, and a PassThrough after it decompresses — including
+    // got@14+, which strips content-encoding while leaving etag / content-range
+    // that still name the compressed bytes. Gating on encoding being present
+    // therefore misses the decoded path on modern got.
+    const isDecoded =
+      decoded ??
+      (upstreamRes !== upstream && !(upstreamRes instanceof IncomingMessage))
 
     for (const header of headers) {
-      if (dropEncoded && INVALIDATED_BY_DECODING.includes(header)) continue
+      if (isDecoded && INVALIDATED_BY_DECODING.includes(header)) continue
       const value = upstreamRes.headers[header]
       if (value !== undefined) res.setHeader(header, value)
     }
