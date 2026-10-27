@@ -3,7 +3,6 @@
 const { PassThrough, pipeline } = require('node:stream')
 
 let sniffer
-// `file-type` behind it is most of the require time; only streams need it.
 const sniffContentType = res => {
   sniffer ??= require('@kikobeats/set-content-type')
   return sniffer(res)
