@@ -34,6 +34,12 @@ const OBJECT_BODY = {
 }
 const BUFFER_BODY = Buffer.alloc(1024, 7)
 
+const STRING_BYTES = Buffer.alloc(1024, 'x')
+const OBJECT_BYTES = Buffer.from(
+  '{"id":123,"name":"send-http","tags":["http","response","stream"],"nested":{"ok":true,"count":42,"ratio":0.5}}'
+)
+const BUFFER_BYTES = Buffer.alloc(1024, 7)
+
 const median = values => {
   const sorted = values.slice().sort((a, b) => a - b)
   return sorted[Math.floor(sorted.length / 2)]
@@ -98,30 +104,27 @@ const createBodyStream = () => {
   })
 }
 
-const sendCase = (name, sends, body, contentType) => {
-  const expectedLength = Buffer.isBuffer(body)
-    ? body.length
-    : Buffer.byteLength(typeof body === 'string' ? body : JSON.stringify(body))
-  return {
-    name,
-    extra: `work ${sends} sends of ${expectedLength} bytes`,
-    run: () => {
-      let failures = 0
-      for (let i = 0; i < sends; i++) {
-        const res = createResponse()
-        send(res, 200, body)
-        if (
-          res.body.length !== expectedLength ||
-          res.headers['content-length'] !== expectedLength ||
-          res.headers['content-type'] !== contentType
-        ) {
-          failures++
-        }
+const sendCase = (name, sends, body, expectedBody, contentType) => ({
+  name,
+  extra: `work ${sends} sends of ${expectedBody.length} bytes`,
+  run: () => {
+    let failures = 0
+    let res
+    for (let i = 0; i < sends; i++) {
+      res = createResponse()
+      send(res, 200, body)
+      if (
+        res.body.length !== expectedBody.length ||
+        res.headers['content-length'] !== expectedBody.length ||
+        res.headers['content-type'] !== contentType
+      ) {
+        failures++
       }
-      if (failures > 0) throw new Error(`${name}: ${failures} wrong responses`)
     }
+    if (!expectedBody.equals(res.body)) failures++
+    if (failures > 0) throw new Error(`${name}: ${failures} wrong responses`)
   }
-}
+})
 
 const streamOnce = presetContentType =>
   new Promise((resolve, reject) => {
@@ -156,7 +159,9 @@ const spawnNode = script => {
     stdio: 'inherit'
   })
   const wall = elapsed(started)
-  if (child.status !== 0) { throw new Error(`node -e ${script} exited ${child.status}`) }
+  if (child.status !== 0) {
+    throw new Error(`node -e ${script} exited ${child.status}`)
+  }
   return wall
 }
 
@@ -190,17 +195,25 @@ const coldRequireCase = {
 }
 
 const CASES = [
-  sendCase('send string', TEXT_SENDS, STRING_BODY, 'text/plain; charset=utf-8'),
+  sendCase(
+    'send string',
+    TEXT_SENDS,
+    STRING_BODY,
+    STRING_BYTES,
+    'text/plain; charset=utf-8'
+  ),
   sendCase(
     'send object',
     TEXT_SENDS,
     OBJECT_BODY,
+    OBJECT_BYTES,
     'application/json; charset=utf-8'
   ),
   sendCase(
     'send buffer',
     BUFFER_SENDS,
     BUFFER_BODY,
+    BUFFER_BYTES,
     'application/octet-stream'
   ),
   streamCase('sendStream sniffed', SNIFFED_STREAMS, undefined, 'image/jpeg'),
