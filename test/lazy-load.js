@@ -206,7 +206,8 @@ const response = () => {
   return res
 }
 
-test('a sniffer that fails to load destroys the source', async t => {
+// One process, one module cache. Overlapping mocks would hide a failed load.
+const brokenSniffer = t => {
   const Module = require('module')
   const send = require('..')
   const original = Module.prototype.require
@@ -227,9 +228,20 @@ test('a sniffer that fails to load destroys the source', async t => {
     }
   })
 
+  return {
+    send,
+    track,
+    restore () {
+      Module.prototype.require = original
+    }
+  }
+}
+
+test.serial('a sniffer that fails to load destroys the source', async t => {
+  const { send, track } = brokenSniffer(t)
   const stream = track(Readable.from([Buffer.from('hello')]))
   const res = track(response())
-  const streamFailed = once(stream, 'error')
+  const failed = once(stream, 'error')
   let reported
   t.is(
     send(res, 200, stream, {
@@ -240,106 +252,145 @@ test('a sniffer that fails to load destroys the source', async t => {
     res
   )
   t.true(stream.destroyed)
-  t.is((await streamFailed)[0], reported)
+  t.is((await failed)[0], reported)
   t.is(reported.message, 'sniffer unavailable')
+})
 
-  const bare = track(Readable.from([Buffer.from('hello')]))
-  const bareRes = track(response())
-  const bareFailed = once(bare, 'error')
-  t.is(send(bareRes, 200, bare), bareRes)
-  t.true(bare.destroyed)
-  t.is((await bareFailed)[0].message, 'sniffer unavailable')
+test.serial(
+  'a sniffer that fails to load destroys the source without onError',
+  async t => {
+    const { send, track } = brokenSniffer(t)
+    const stream = track(Readable.from([Buffer.from('hello')]))
+    const res = track(response())
+    const failed = once(stream, 'error')
+    t.is(send(res, 200, stream), res)
+    t.true(stream.destroyed)
+    t.is((await failed)[0].message, 'sniffer unavailable')
+  }
+)
 
-  const upstream = track(Readable.from([Buffer.from('hello')]))
-  upstream.statusCode = 200
-  upstream.headers = {}
-  const proxied = track(response())
-  const proxyFailed = once(upstream, 'error')
-  let proxyError
-  t.is(
-    send.proxy(proxied, upstream, {
+test.serial(
+  'a sniffer that fails to load destroys a proxied source',
+  async t => {
+    const { send, track } = brokenSniffer(t)
+    const upstream = track(Readable.from([Buffer.from('hello')]))
+    upstream.statusCode = 200
+    upstream.headers = {}
+    const res = track(response())
+    const failed = once(upstream, 'error')
+    let reported
+    t.is(
+      send.proxy(res, upstream, {
+        onError (error) {
+          reported = error
+        }
+      }),
+      res
+    )
+    t.true(upstream.destroyed)
+    t.is((await failed)[0], reported)
+    t.is(reported.message, 'sniffer unavailable')
+  }
+)
+
+test.serial(
+  'a sniffer that fails to load does not escape a deferred proxy',
+  async t => {
+    const { send, track } = brokenSniffer(t)
+    const upstream = track(new Readable({ read () {} }))
+    const res = track(response())
+    const failed = once(upstream, 'error')
+    let reported
+    send.proxy(res, upstream, {
       onError (error) {
-        proxyError = error
+        reported = error
       }
-    }),
-    proxied
-  )
-  t.true(upstream.destroyed)
-  t.is((await proxyFailed)[0], proxyError)
-  t.is(proxyError.message, 'sniffer unavailable')
+    })
+    t.is(reported, undefined)
+    upstream.statusCode = 200
+    upstream.headers = {}
+    t.notThrows(() => upstream.emit('response', upstream))
+    t.true(upstream.destroyed)
+    t.is((await failed)[0], reported)
+    t.is(reported.message, 'sniffer unavailable')
+  }
+)
 
-  // The other `onceResponse` branch: the throw used to escape the listener.
-  const deferred = track(new Readable({ read () {} }))
-  const deferredRes = track(response())
-  const deferredFailed = once(deferred, 'error')
-  let deferredError
-  send.proxy(deferredRes, deferred, {
-    onError (error) {
-      deferredError = error
-    }
-  })
-  t.is(deferredError, undefined)
-  deferred.statusCode = 200
-  deferred.headers = {}
-  t.notThrows(() => deferred.emit('response', deferred))
-  t.true(deferred.destroyed)
-  t.is((await deferredFailed)[0], deferredError)
-  t.is(deferredError.message, 'sniffer unavailable')
+test.serial(
+  'a sniffer failure still reports when the source is already destroyed',
+  t => {
+    const { send, track } = brokenSniffer(t)
+    const stream = track(Readable.from([Buffer.from('hello')]))
+    stream.destroy()
+    const res = track(response())
+    let reported
+    send(res, 200, stream, {
+      onError (error) {
+        reported = error
+      }
+    })
+    t.is(reported.message, 'sniffer unavailable')
+    t.true(res.destroyed)
+  }
+)
 
-  // `destroy(error)` emits nothing once the source is already destroyed.
-  const dead = track(Readable.from([Buffer.from('hello')]))
-  dead.destroy()
-  const deadRes = track(response())
-  let deadError
-  send(deadRes, 200, dead, {
-    onError (error) {
-      deadError = error
-    }
-  })
-  t.is(deadError.message, 'sniffer unavailable')
-  t.true(deadRes.destroyed)
+test.serial(
+  'a sniffer failure reports once when the source already errored',
+  async t => {
+    const { send, track } = brokenSniffer(t)
+    const stream = track(new Readable({ read () {} }))
+    stream.destroy(new Error('already dead'))
+    const res = track(response())
+    const seen = []
+    send(res, 200, stream, {
+      onError (error) {
+        seen.push(error.message)
+      }
+    })
+    await new Promise(resolve => setImmediate(resolve))
+    t.deepEqual(seen, ['sniffer unavailable'])
+  }
+)
 
-  const raced = track(new Readable({ read () {} }))
-  raced.destroy(new Error('already dead'))
-  const racedRes = track(response())
-  const seen = []
-  send(racedRes, 200, raced, {
-    onError (error) {
-      seen.push(error.message)
-    }
-  })
-  await new Promise(resolve => setImmediate(resolve))
-  t.deepEqual(seen, ['sniffer unavailable'])
+test.serial(
+  'a sniffer failure still reports when a proxied source is already destroyed',
+  t => {
+    const { send, track } = brokenSniffer(t)
+    const upstream = track(Readable.from([Buffer.from('hello')]))
+    upstream.destroy()
+    upstream.statusCode = 200
+    upstream.headers = {}
+    const res = track(response())
+    let reported
+    send.proxy(res, upstream, {
+      onError (error) {
+        reported = error
+      }
+    })
+    t.is(reported.message, 'sniffer unavailable')
+    t.true(res.destroyed)
+  }
+)
 
-  const deadUp = track(Readable.from([Buffer.from('hello')]))
-  deadUp.destroy()
-  deadUp.statusCode = 200
-  deadUp.headers = {}
-  const deadProxyRes = track(response())
-  let deadProxyError
-  send.proxy(deadProxyRes, deadUp, {
-    onError (error) {
-      deadProxyError = error
-    }
-  })
-  t.is(deadProxyError.message, 'sniffer unavailable')
-  t.true(deadProxyRes.destroyed)
-
-  // A failed load must not stick: the next sniff has to try again.
+test.serial('a failed sniffer load does not stick', t => {
+  const { send, track, restore } = brokenSniffer(t)
+  const missed = track(Readable.from([Buffer.from('hello')]))
+  send(track(response()), 200, missed)
   t.false(hasFileType(Object.keys(require.cache)))
-  Module.prototype.require = original
+
+  restore()
   const again = track(Readable.from([Buffer.from('hello')]))
-  const againRes = track(response())
-  let againError
+  const res = track(response())
+  let reported
   t.is(
-    send(againRes, 200, again, {
+    send(res, 200, again, {
       onError (error) {
-        againError = error
+        reported = error
       }
     }),
-    againRes
+    res
   )
-  t.is(againError, undefined)
+  t.is(reported, undefined)
   t.false(again.destroyed)
   t.true(hasFileType(Object.keys(require.cache)))
 })
