@@ -41,7 +41,17 @@ const pipeStream = (res, statusCode, stream) => {
 
   res.statusCode = statusCode
   if (canSetContentType(res)) {
-    pipeline(stream, sniffContentType(res), noop)
+    // `pipeline` never starts if this throws, so the source has to be
+    // destroyed here. A deferred proxy would otherwise throw from the
+    // upstream `'response'` listener.
+    let destination
+    try {
+      destination = sniffContentType(res)
+    } catch (error) {
+      stream.destroy(error)
+      return res
+    }
+    pipeline(stream, destination, noop)
   } else {
     // the sniffer would hand back this same hop, wrapped in a second pipeline:
     // ~13% on a 64KB body. Never `stream` straight into `res` though, since
