@@ -26,13 +26,19 @@ const canAnswer = res => !res.headersSent && !res.writableEnded
 
 /** Registered on the stream rather than through `pipeline`, which by its
  * callback has already destroyed the response. */
-const forwardErrors = (stream, res, onError) =>
-  stream.once('error', error => {
+const forwardErrors = (stream, res, onError) => {
+  let reported = false
+  const report = error => {
+    if (reported) return
+    reported = true
     onError?.(error, res)
     if (canAnswer(res)) res.destroy()
-  })
+  }
+  stream.once('error', report)
+  return report
+}
 
-const pipeStream = (res, statusCode, stream) => {
+const pipeStream = (res, statusCode, stream, report) => {
   // piping into a gone response throws; the stream still has to go somewhere.
   if (res.closed || res.writableEnded) {
     stream.destroy()
@@ -48,7 +54,9 @@ const pipeStream = (res, statusCode, stream) => {
     try {
       destination = sniffContentType(res)
     } catch (error) {
-      stream.destroy(error)
+      // `destroy` on an already-destroyed stream does not emit `error`.
+      if (stream.destroyed) report(error)
+      else stream.destroy(error)
       return res
     }
     pipeline(stream, destination, noop)
@@ -62,8 +70,8 @@ const pipeStream = (res, statusCode, stream) => {
 }
 
 const sendStream = (res, statusCode, stream, { onError } = {}) => {
-  forwardErrors(stream, res, onError)
-  return pipeStream(res, statusCode, stream)
+  const report = forwardErrors(stream, res, onError)
+  return pipeStream(res, statusCode, stream, report)
 }
 
 /** Only what describes the body crosses; everything else is a fact about the
@@ -102,7 +110,7 @@ const proxy = (
   if (res.closed) upstream.destroy()
   else res.once('close', () => upstream.destroy())
 
-  forwardErrors(upstream, res, onError)
+  const report = forwardErrors(upstream, res, onError)
 
   onceResponse(upstream, upstreamRes => {
     if (!canAnswer(res)) return upstream.destroy()
@@ -121,7 +129,7 @@ const proxy = (
     }
     // piped once the headers landed: an upstream content-type makes sniffing the
     // payload, and the sample it withholds, unnecessary.
-    pipeStream(res, upstreamRes.statusCode, upstream)
+    pipeStream(res, upstreamRes.statusCode, upstream, report)
   })
 
   return res

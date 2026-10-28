@@ -286,6 +286,45 @@ test('a sniffer that fails to load destroys the source', async t => {
   t.is((await deferredFailed)[0], deferredError)
   t.is(deferredError.message, 'sniffer unavailable')
 
+  // `destroy(error)` emits nothing once the source is already destroyed.
+  const dead = track(Readable.from([Buffer.from('hello')]))
+  dead.destroy()
+  const deadRes = track(response())
+  let deadError
+  send(deadRes, 200, dead, {
+    onError (error) {
+      deadError = error
+    }
+  })
+  t.is(deadError.message, 'sniffer unavailable')
+  t.true(deadRes.destroyed)
+
+  const raced = track(new Readable({ read () {} }))
+  raced.destroy(new Error('already dead'))
+  const racedRes = track(response())
+  const seen = []
+  send(racedRes, 200, raced, {
+    onError (error) {
+      seen.push(error.message)
+    }
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  t.deepEqual(seen, ['sniffer unavailable'])
+
+  const deadUp = track(Readable.from([Buffer.from('hello')]))
+  deadUp.destroy()
+  deadUp.statusCode = 200
+  deadUp.headers = {}
+  const deadProxyRes = track(response())
+  let deadProxyError
+  send.proxy(deadProxyRes, deadUp, {
+    onError (error) {
+      deadProxyError = error
+    }
+  })
+  t.is(deadProxyError.message, 'sniffer unavailable')
+  t.true(deadProxyRes.destroyed)
+
   // A failed load must not stick: the next sniff has to try again.
   t.false(hasFileType(Object.keys(require.cache)))
   Module.prototype.require = original
